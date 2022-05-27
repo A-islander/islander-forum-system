@@ -6,8 +6,9 @@ import (
 )
 
 type Value struct {
-	Num int
-	Str string
+	Num  int
+	Str  string
+	Atom string
 }
 type ExprNode struct {
 	Atom  string
@@ -60,18 +61,25 @@ func Eval(expression string) {
 
 }
 
-func evalValue(expr *ExprNode) {
+// 回值和类型
+func evalValue(expr *ExprNode) (Value, int) {
 	// 没有子节点了
 	if len(expr.Param) == 0 {
 		// 字符串
 		if expr.Atom[0] == '"' {
 			expr.Value.Str = expr.Atom[1 : len(expr.Atom)-2]
+			return expr.Value, 1
 		}
 		// 数字
 		if checkNum(expr.Atom) {
 			expr.Value.Num, _ = strconv.Atoi(expr.Atom)
+			return expr.Value, 2
+		} else {
+			expr.Value.Atom = expr.Atom
+			return expr.Value, 3
 		}
 	}
+	return expr.Value, 4
 }
 
 // 回查找的字符串，和游标index
