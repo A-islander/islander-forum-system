@@ -2,16 +2,17 @@ package controller
 
 import (
 	"fmt"
+	"strconv"
 )
 
 type Value struct {
 	Num int
 	Str string
 }
-type TreeNode struct {
+type ExprNode struct {
 	Atom  string
 	Value Value
-	Param []*TreeNode
+	Param []*ExprNode
 }
 
 type ExprStr struct {
@@ -59,8 +60,22 @@ func Eval(expression string) {
 
 }
 
+func evalValue(expr *ExprNode) {
+	// 没有子节点了
+	if len(expr.Param) == 0 {
+		// 字符串
+		if expr.Atom[0] == '"' {
+			expr.Value.Str = expr.Atom[1 : len(expr.Atom)-2]
+		}
+		// 数字
+		if checkNum(expr.Atom) {
+			expr.Value.Num, _ = strconv.Atoi(expr.Atom)
+		}
+	}
+}
+
 // 回查找的字符串，和游标index
-func parseValue(str string, index int) (*TreeNode, int) {
+func parseValue(str string, index int) (*ExprNode, int) {
 	// 跳过空格
 	index = skipSpace(str, index)
 	// 表达式
@@ -74,10 +89,10 @@ func parseValue(str string, index int) (*TreeNode, int) {
 }
 
 // 返回复合表达式
-func parseExpression(str string, index int) (*TreeNode, int) {
+func parseExpression(str string, index int) (*ExprNode, int) {
 	index += 1
 	rootStatus := false
-	var node *TreeNode
+	var node *ExprNode
 	for {
 		index = skipSpace(str, index)
 		if str[index] == ']' {
@@ -96,10 +111,10 @@ func parseExpression(str string, index int) (*TreeNode, int) {
 }
 
 // 返回原子表达式
-func parseAtom(str string, index int) (*TreeNode, int) {
+func parseAtom(str string, index int) (*ExprNode, int) {
 	index = skipSpace(str, index)
 	buff := make([]byte, 0)
-	node := TreeNode{}
+	node := ExprNode{}
 	for {
 		if str[index] == ' ' || str[index] == ']' {
 			if str[index] == ' ' {
@@ -114,11 +129,11 @@ func parseAtom(str string, index int) (*TreeNode, int) {
 }
 
 // 返回字符串表达式
-func parseStr(str string, index int) (*TreeNode, int) {
+func parseStr(str string, index int) (*ExprNode, int) {
 	buff := make([]byte, 1)
 	buff[0] = str[index]
 	index += 1
-	node := TreeNode{}
+	node := ExprNode{}
 	for {
 		if str[index] == '"' {
 			buff = append(buff, str[index])
@@ -143,10 +158,19 @@ func skipSpace(str string, index int) int {
 	return index
 }
 
-func printTree(node *TreeNode) {
+func printTree(node *ExprNode) {
 	fmt.Printf("%p", node)
 	fmt.Println(node)
 	for i := 0; i < len(node.Param); i++ {
 		printTree(node.Param[i])
 	}
+}
+
+func checkNum(str string) bool {
+	for i := 0; i < len(str); i++ {
+		if str[i] < '0' || str[i] > '9' {
+			return false
+		}
+	}
+	return true
 }

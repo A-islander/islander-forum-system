@@ -60,4 +60,5 @@ func TestStrOperate(t *testing.T) {
 		node, _ := parseValue(exprArr[i].Str, 0)
 		printTree(node)
 	}
+	fmt.Println(checkNum("123123123"))
 }
