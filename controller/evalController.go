@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 )
@@ -9,7 +10,9 @@ type Value struct {
 	Num  int
 	Str  string
 	Atom string
+	Type int // 1:num,2:str,3:atom
 }
+
 type ExprNode struct {
 	Atom  string
 	Value Value
@@ -62,24 +65,64 @@ func Eval(expression string) {
 }
 
 // 回值和类型
-func evalValue(expr *ExprNode) (Value, int) {
+func evalValue(expr *ExprNode) (Value, error) {
 	// 没有子节点了
 	if len(expr.Param) == 0 {
 		// 字符串
 		if expr.Atom[0] == '"' {
-			expr.Value.Str = expr.Atom[1 : len(expr.Atom)-2]
-			return expr.Value, 1
+			expr.Value.Str = expr.Atom[1 : len(expr.Atom)-1]
+			expr.Value.Type = 1
+			return expr.Value, nil
 		}
 		// 数字
 		if checkNum(expr.Atom) {
 			expr.Value.Num, _ = strconv.Atoi(expr.Atom)
-			return expr.Value, 2
+			expr.Value.Type = 2
+			return expr.Value, nil
 		} else {
 			expr.Value.Atom = expr.Atom
-			return expr.Value, 3
+			expr.Value.Type = 4
+			return expr.Value, nil
 		}
 	}
-	return expr.Value, 4
+	// expr.param 都要求值
+	for i := 0; i < len(expr.Param); i++ {
+		evalValue(expr.Param[i])
+	}
+	value, err := evalValueOper(expr)
+	if err != nil {
+		return expr.Value, errors.New("eval error")
+	}
+	expr.Value = value
+	return expr.Value, nil
+}
+
+func evalValueOper(expr *ExprNode) (Value, error) {
+	var param []Value
+	for i := 0; i < len(expr.Param); i++ {
+		param = append(param, expr.Param[i].Value)
+	}
+	return operate(expr.Atom, param)
+}
+
+func operate(atom string, param []Value) (Value, error) {
+	switch atom {
+	case "+":
+		return evalAddOperate(param)
+	}
+	return Value{}, errors.New("eval error")
+}
+
+func evalAddOperate(param []Value) (Value, error) {
+	ret := Value{}
+	for i := 0; i < len(param); i++ {
+		if param[i].Type != 2 {
+			return ret, errors.New("eval error")
+		}
+		ret.Num += param[i].Num
+	}
+	ret.Type = 2
+	return ret, nil
 }
 
 // 回查找的字符串，和游标index
