@@ -3,7 +3,9 @@ package controller
 import (
 	"errors"
 	"fmt"
+	"math/rand"
 	"strconv"
+	"time"
 )
 
 type Value struct {
@@ -87,7 +89,10 @@ func evalValue(expr *ExprNode) (Value, error) {
 	}
 	// expr.param 都要求值
 	for i := 0; i < len(expr.Param); i++ {
-		evalValue(expr.Param[i])
+		value, err := evalValue(expr.Param[i])
+		if err != nil {
+			return value, err
+		}
 	}
 	value, err := evalValueOper(expr)
 	if err != nil {
@@ -106,22 +111,46 @@ func evalValueOper(expr *ExprNode) (Value, error) {
 }
 
 func operate(atom string, param []Value) (Value, error) {
+	rand.Seed(time.Now().UnixNano())
 	switch atom {
 	case "+":
 		return evalAddOperate(param)
+	case "roll":
+		return evalRollOperate(param)
 	}
 	return Value{}, errors.New("eval error")
 }
 
 func evalAddOperate(param []Value) (Value, error) {
 	ret := Value{}
+	sum := 0
 	for i := 0; i < len(param); i++ {
 		if param[i].Type != 2 {
 			return ret, errors.New("eval error")
 		}
-		ret.Num += param[i].Num
+		sum += param[i].Num
 	}
-	ret.Type = 2
+	ret.setValue(sum, 2)
+
+	return ret, nil
+}
+
+func evalRollOperate(param []Value) (Value, error) {
+	ret := Value{}
+	// 验参
+	if len(param) != 2 {
+		return ret, errors.New("eval error")
+	}
+	for i := 0; i < len(param); i++ {
+		if param[i].Type != 2 {
+			return ret, errors.New("eval error")
+		}
+	}
+	start := param[0].Num
+	end := param[1].Num
+	roll := rand.Intn(end - start + 1)
+	ret.setValue(roll+start, 2)
+
 	return ret, nil
 }
 
@@ -210,10 +239,39 @@ func skipSpace(str string, index int) int {
 }
 
 func printTree(node *ExprNode) {
-	fmt.Printf("%p", node)
+	fmt.Printf("%p ", node)
 	fmt.Println(node)
 	for i := 0; i < len(node.Param); i++ {
 		printTree(node.Param[i])
+	}
+}
+
+func (v *Value) getValue() interface{} {
+	switch v.Type {
+	case 1:
+		return v.Str
+	case 2:
+		return v.Num
+	case 4:
+		return v.Atom
+	}
+	return nil
+}
+
+func (v *Value) setValue(value interface{}, valueType int) {
+	switch valueType {
+	case 1:
+		v.Str = value.(string)
+		v.Type = valueType
+		break
+	case 2:
+		v.Num = value.(int)
+		v.Type = valueType
+		break
+	case 4:
+		v.Atom = value.(string)
+		v.Type = valueType
+		break
 	}
 }
 

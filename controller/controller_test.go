@@ -55,12 +55,16 @@ func TestStrOperate(t *testing.T) {
 	// }
 	// str := "123123 [+  abc   [+ 234 456] \"[123]\"] 2314123 [+  abc   [+ 234 456] \"[123]\"]"
 	// str := "123123 [+  abc   [+ 234 456] \"[123]\"] 123 [+  abc   [+ 234 456] \"[123]"
-	str := "[+ [+ 1 1] [+ 1 1]]"
+	str := "[+ 1 [roll 0 1000]]"
 	exprArr := FindExpression(str)
 	for i := 0; i < len(exprArr); i++ {
 		node, _ := parseValue(exprArr[i].Str, 0)
-		evalValue(node)
-		printTree(node)
+		_, err := evalValue(node)
+		if err != nil {
+			fmt.Println(err)
+		}
+		// printTree(node)
+		fmt.Println(str+" =", node.Value.getValue())
 	}
 	fmt.Println(checkNum("123123123"))
 }
