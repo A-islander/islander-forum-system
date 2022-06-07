@@ -49,22 +49,9 @@ func TestChangePost(t *testing.T) {
 	ChangePostPlate(57, 1)
 }
 
+// 还有错误没处理
 func TestStrOperate(t *testing.T) {
-	// for i := 0; i < 10; i++ {
-	// 	fmt.Println(strOperate("你好，我现在在决定 [decide 吃饭 睡觉 coding]"))
-	// }
-	// str := "123123 [+  abc   [+ 234 456] \"[123]\"] 2314123 [+  abc   [+ 234 456] \"[123]\"]"
-	// str := "123123 [+  abc   [+ 234 456] \"[123]\"] 123 [+  abc   [+ 234 456] \"[123]"
-	str := "[+ 1 [roll 0 1000]]"
-	exprArr := FindExpression(str)
-	for i := 0; i < len(exprArr); i++ {
-		node, _ := parseValue(exprArr[i].Str, 0)
-		_, err := evalValue(node)
-		if err != nil {
-			fmt.Println(err)
-		}
-		// printTree(node)
-		fmt.Println(str+" =", node.Value.getValue())
-	}
-	fmt.Println(checkNum("123123123"))
+	str := "[decide \"123\" 你好\"] [decide \"123\" \"你好\"]"
+	newStr := Eval(str)
+	fmt.Println(newStr)
 }

@@ -27,6 +27,7 @@ type ExprStr struct {
 	End   int
 }
 
+// 查找表达式
 func FindExpression(str string) []ExprStr {
 	length := len(str)
 	// 栈堆
@@ -57,13 +58,29 @@ func FindExpression(str string) []ExprStr {
 			ExprArr = append(ExprArr, ExprStr{Str: str[start : end+1], Start: start, End: end})
 		}
 	}
-	fmt.Println(ExprArr)
+	// fmt.Println(ExprArr)
 
 	return ExprArr
 }
 
-func Eval(expression string) {
-
+// 传入待求值字符串
+func Eval(expression string) string {
+	exprArr := FindExpression(expression)
+	var newStr string
+	start := 0
+	for i := 0; i < len(exprArr); i++ {
+		node, _ := parseValue(exprArr[i].Str, 0)
+		_, err := evalValue(node)
+		if err != nil {
+			fmt.Println(err)
+		}
+		newStr += expression[start:exprArr[i].End+1] + " = " + node.Value.transferValue()
+		start = exprArr[i].End + 1
+	}
+	if len(exprArr) == 0 {
+		return expression
+	}
+	return newStr
 }
 
 // 回值和类型
@@ -102,6 +119,7 @@ func evalValue(expr *ExprNode) (Value, error) {
 	return expr.Value, nil
 }
 
+// 求值操作
 func evalValueOper(expr *ExprNode) (Value, error) {
 	var param []Value
 	for i := 0; i < len(expr.Param); i++ {
@@ -110,18 +128,21 @@ func evalValueOper(expr *ExprNode) (Value, error) {
 	return operate(expr.Atom, param)
 }
 
+// 操作对应表
 func operate(atom string, param []Value) (Value, error) {
 	rand.Seed(time.Now().UnixNano())
 	switch atom {
 	case "+":
-		return evalAddOperate(param)
+		return addOperate(param)
 	case "roll":
-		return evalRollOperate(param)
+		return rollOperate(param)
+	case "decide":
+		return decideOperate(param)
 	}
 	return Value{}, errors.New("eval error")
 }
 
-func evalAddOperate(param []Value) (Value, error) {
+func addOperate(param []Value) (Value, error) {
 	ret := Value{}
 	sum := 0
 	for i := 0; i < len(param); i++ {
@@ -135,7 +156,7 @@ func evalAddOperate(param []Value) (Value, error) {
 	return ret, nil
 }
 
-func evalRollOperate(param []Value) (Value, error) {
+func rollOperate(param []Value) (Value, error) {
 	ret := Value{}
 	// 验参
 	if len(param) != 2 {
@@ -151,6 +172,17 @@ func evalRollOperate(param []Value) (Value, error) {
 	roll := rand.Intn(end - start + 1)
 	ret.setValue(roll+start, 2)
 
+	return ret, nil
+}
+
+func decideOperate(param []Value) (Value, error) {
+	ret := Value{}
+	for i := 0; i < len(param); i++ {
+		if param[i].Type != 1 {
+			return ret, errors.New("eval error")
+		}
+	}
+	ret.setValue(param[rand.Intn(len(param))].Str, 1)
 	return ret, nil
 }
 
@@ -256,6 +288,18 @@ func (v *Value) getValue() interface{} {
 		return v.Atom
 	}
 	return nil
+}
+
+func (v *Value) transferValue() string {
+	switch v.Type {
+	case 1:
+		return v.Str
+	case 2:
+		return strconv.Itoa(v.Num)
+	case 4:
+		return v.Atom
+	}
+	return "求值错误，请检查表达式"
 }
 
 func (v *Value) setValue(value interface{}, valueType int) {
