@@ -75,9 +75,7 @@ func Eval(expression string) string {
 		newStr += expression[start:exprArr[i].End+1] + " = " + node.Value.transferValue() + " "
 		start = exprArr[i].End + 1
 	}
-	if len(exprArr) == 0 {
-		return expression
-	}
+	newStr += expression[start:]
 	return newStr
 }
 
