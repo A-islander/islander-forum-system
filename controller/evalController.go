@@ -3,9 +3,7 @@ package controller
 import (
 	"errors"
 	"fmt"
-	"math/rand"
 	"strconv"
-	"time"
 )
 
 type Value struct {
@@ -74,7 +72,7 @@ func Eval(expression string) string {
 		if err != nil {
 			fmt.Println(err)
 		}
-		newStr += expression[start:exprArr[i].End+1] + " = " + node.Value.transferValue()
+		newStr += expression[start:exprArr[i].End+1] + " = " + node.Value.transferValue() + " "
 		start = exprArr[i].End + 1
 	}
 	if len(exprArr) == 0 {
@@ -128,64 +126,6 @@ func evalValueOper(expr *ExprNode) (Value, error) {
 	return operate(expr.Atom, param)
 }
 
-// 操作对应表
-func operate(atom string, param []Value) (Value, error) {
-	rand.Seed(time.Now().UnixNano())
-	switch atom {
-	case "+":
-		return addOperate(param)
-	case "roll":
-		return rollOperate(param)
-	case "decide":
-		return decideOperate(param)
-	}
-	return Value{}, errors.New("eval error")
-}
-
-func addOperate(param []Value) (Value, error) {
-	ret := Value{}
-	sum := 0
-	for i := 0; i < len(param); i++ {
-		if param[i].Type != 2 {
-			return ret, errors.New("eval error")
-		}
-		sum += param[i].Num
-	}
-	ret.setValue(sum, 2)
-
-	return ret, nil
-}
-
-func rollOperate(param []Value) (Value, error) {
-	ret := Value{}
-	// 验参
-	if len(param) != 2 {
-		return ret, errors.New("eval error")
-	}
-	for i := 0; i < len(param); i++ {
-		if param[i].Type != 2 {
-			return ret, errors.New("eval error")
-		}
-	}
-	start := param[0].Num
-	end := param[1].Num
-	roll := rand.Intn(end - start + 1)
-	ret.setValue(roll+start, 2)
-
-	return ret, nil
-}
-
-func decideOperate(param []Value) (Value, error) {
-	ret := Value{}
-	for i := 0; i < len(param); i++ {
-		if param[i].Type != 1 {
-			return ret, errors.New("eval error")
-		}
-	}
-	ret.setValue(param[rand.Intn(len(param))].Str, 1)
-	return ret, nil
-}
-
 // 回查找的字符串，和游标index
 func parseValue(str string, index int) (*ExprNode, int) {
 	// 跳过空格
@@ -228,8 +168,8 @@ func parseAtom(str string, index int) (*ExprNode, int) {
 	buff := make([]byte, 0)
 	node := ExprNode{}
 	for {
-		if str[index] == ' ' || str[index] == ']' {
-			if str[index] == ' ' {
+		if checkSpace(str[index]) || str[index] == ']' {
+			if checkSpace(str[index]) {
 				index += 1 // 跳过最后的空格
 			}
 			node.Atom = string(buff)
@@ -261,7 +201,7 @@ func parseStr(str string, index int) (*ExprNode, int) {
 func skipSpace(str string, index int) int {
 	// 跳过空格
 	for {
-		if str[index] == ' ' && index < len(str) {
+		if checkSpace(str[index]) && index < len(str) {
 			index += 1
 		} else {
 			break
@@ -326,4 +266,8 @@ func checkNum(str string) bool {
 		}
 	}
 	return true
+}
+
+func checkSpace(word byte) bool {
+	return word == ' ' || word == '\n' || word == '\t'
 }

@@ -51,7 +51,12 @@ func TestChangePost(t *testing.T) {
 
 // 还有错误没处理
 func TestStrOperate(t *testing.T) {
-	str := "[decide \"123\" 你好\"] [decide \"123\" \"你好\"]"
+	str := `你好，决定一下
+	[decide
+		[decide
+			"吃饭"
+			"洗澡"]
+		"睡大觉"]`
 	newStr := Eval(str)
 	fmt.Println(newStr)
 }
