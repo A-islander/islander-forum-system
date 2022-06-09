@@ -51,7 +51,7 @@ func TestChangePost(t *testing.T) {
 
 // 还有错误没处理
 func TestStrOperate(t *testing.T) {
-	str := `2022-06-08日更新`
+	str := `[decide + -]`
 	newStr := Eval(str)
 	fmt.Println(newStr)
 }
