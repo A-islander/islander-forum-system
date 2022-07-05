@@ -134,6 +134,13 @@ func GetForumPostList(postId int, page int, size int) ([]ForumPost, int) {
 	return res, int(count)
 }
 
+// TODO 获取单个帖子
+func GetForumPostByPostId(postId int) (ForumPost, error) {
+	var res ForumPost
+	err := db.Where("id = ?", postId).Take(&res).Error
+	return res, err
+}
+
 func getForumPostListCount(postId int) int {
 	var count int64
 	db.Where("(follow_id = ? and status = 0) or id = ?", postId, postId).Count(&count)
@@ -210,6 +217,12 @@ func UpdateSageSub(post ForumPost) {
 
 func UpdateForumPostStatus(post ForumPost, status int) {
 	db.Model(&post).Update("status", status)
+	// 更新缓存
+	indexKey := "fS:pI:" + strconv.Itoa(post.PlateId)
+	countKey := "fS:pIC:" + strconv.Itoa(post.PlateId)
+	// setForumIndexBuff(post)
+	delKey(indexKey)
+	delKey(countKey)
 }
 
 func initForumIndexBuff(postArr []ForumPost) {

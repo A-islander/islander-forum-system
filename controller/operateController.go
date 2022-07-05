@@ -87,11 +87,11 @@ func rollOperate(param []Value) (Value, error) {
 
 func decideOperate(param []Value) (Value, error) {
 	ret := Value{}
-	// for i := 0; i < len(param); i++ {
-	// 	if param[i].Type != 1 {
-	// 		return ret, errors.New("eval error")
-	// 	}
-	// } 如果这样注释有bug
+	for i := 0; i < len(param); i++ {
+		if param[i].Type != 1 {
+			return ret, errors.New("eval error")
+		}
+	} // 如果这样注释有bug
 	ret.setValue(param[rand.Intn(len(param))].Str, 1)
 	return ret, nil
 }

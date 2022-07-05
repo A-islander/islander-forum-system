@@ -22,6 +22,8 @@ func Init() *http.ServeMux {
 	forumServer.Handle("/forum/sage/add", mid(sageAdd))
 	forumServer.Handle("/forum/sage/sub", mid(sageSub))
 	forumServer.Handle("/forum/sage/list", mid(sageList))
+	forumServer.Handle("/forum/delete/ownPost", mid(deleteOwnPost))
+	forumServer.Handle("/forum/recover/ownPost", mid(recoverOwnPost))
 	forumServer.Handle("/img/token", mid(getImgToken))
 	forumServer.Handle("/img/upload", mid(postImgUpload))
 

@@ -12,7 +12,7 @@ import (
 func getForumPlate(w http.ResponseWriter, r *http.Request) {
 	res, err := controller.GetForumPlate()
 	if err != nil {
-		writeError(w, 404, err.Error())
+		writeError(w, http.StatusNotFound, err.Error())
 	} else {
 		write(w, res)
 	}
@@ -32,12 +32,12 @@ func getUserForumPostList(w http.ResponseWriter, r *http.Request) {
 	size, _ := strconv.Atoi(query["size"])
 	token, ok := r.Header["Authorization"]
 	if !ok {
-		writeError(w, 403, errors.New("without Authorization").Error())
+		writeError(w, http.StatusForbidden, errors.New("without Authorization").Error())
 		return
 	}
 	user, err := controller.GetUserByToken(token[0])
 	if err != nil {
-		writeError(w, 403, err.Error())
+		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
 	list, count := controller.GetForumPostByUid(user.Id, page, size)
@@ -52,7 +52,7 @@ func getForumPost(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := controller.GetForumPost(postId)
 	if err != nil {
-		writeError(w, 404, err.Error())
+		writeError(w, http.StatusNotFound, err.Error())
 	} else {
 		write(w, res)
 	}
@@ -74,7 +74,7 @@ func getForumPostList(w http.ResponseWriter, r *http.Request) {
 	size, _ := strconv.Atoi(query["size"])
 	list, count, err := controller.GetForumPostList(postId, page, size)
 	if err != nil {
-		writeError(w, 404, err.Error())
+		writeError(w, http.StatusNotFound, err.Error())
 	} else {
 		writeList(w, list, count)
 	}
@@ -91,17 +91,17 @@ func postForumPost(w http.ResponseWriter, r *http.Request) {
 	postJson(r, &query)
 	token, ok := r.Header["Authorization"]
 	if !ok {
-		writeError(w, 403, errors.New("without Authorization").Error())
+		writeError(w, http.StatusForbidden, errors.New("without Authorization").Error())
 		return
 	}
 	user, err := controller.GetUserByToken(token[0])
 	if err != nil {
-		writeError(w, 403, err.Error())
+		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
 	err = controller.PostForumPost(query.Value, query.Title, query.ReplyArr, query.PlateId, user.Id, query.MediaUrl, user.Name)
 	if err != nil {
-		writeError(w, 404, err.Error())
+		writeError(w, http.StatusNotFound, err.Error())
 	} else {
 		write(w, nil)
 	}
@@ -117,20 +117,48 @@ func replyForumPost(w http.ResponseWriter, r *http.Request) {
 	postJson(r, &query)
 	token, ok := r.Header["Authorization"]
 	if !ok {
-		writeError(w, 403, errors.New("without Authorization").Error())
+		writeError(w, http.StatusForbidden, errors.New("without Authorization").Error())
 		return
 	}
 	user, err := controller.GetUserByToken(token[0])
 	if err != nil {
-		writeError(w, 403, err.Error())
+		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
 	err = controller.ReplyForumPost(query.Value, query.FollowId, query.ReplyArr, user.Id, query.MediaUrl, user.Name)
 	if err != nil {
-		writeError(w, 404, err.Error())
+		writeError(w, http.StatusNotFound, err.Error())
 	} else {
 		write(w, nil)
 	}
+}
+
+func deleteOwnPost(w http.ResponseWriter, r *http.Request) {
+	query := get(r)
+	postId, _ := strconv.Atoi(query["postId"])
+	token, ok := r.Header["Authorization"]
+	if !ok {
+		writeError(w, http.StatusForbidden, errors.New("without Authorization").Error())
+		return
+	}
+	status := controller.DeleteOwnPost(token[0], postId)
+	write(w, struct {
+		Status bool `json:"status"`
+	}{Status: status})
+}
+
+func recoverOwnPost(w http.ResponseWriter, r *http.Request) {
+	query := get(r)
+	postId, _ := strconv.Atoi(query["postId"])
+	token, ok := r.Header["Authorization"]
+	if !ok {
+		writeError(w, http.StatusForbidden, errors.New("without Authorization").Error())
+		return
+	}
+	status := controller.RecoverOwnPost(token[0], postId)
+	write(w, struct {
+		Status bool `json:"status"`
+	}{Status: status})
 }
 
 func sageAdd(w http.ResponseWriter, r *http.Request) {
@@ -138,17 +166,17 @@ func sageAdd(w http.ResponseWriter, r *http.Request) {
 	postId, _ := strconv.Atoi(query["postId"])
 	token, ok := r.Header["Authorization"]
 	if !ok {
-		writeError(w, 403, errors.New("without Authorization").Error())
+		writeError(w, http.StatusForbidden, errors.New("without Authorization").Error())
 		return
 	}
 	user, err := controller.GetUserByToken(token[0])
 	if err != nil {
-		writeError(w, 403, err.Error())
+		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
 	sageStatus, err := controller.SageAdd(postId, user.Id)
 	if err != nil {
-		writeError(w, 403, err.Error())
+		writeError(w, http.StatusForbidden, err.Error())
 	} else {
 		write(w, sageStatus)
 	}
@@ -159,17 +187,17 @@ func sageSub(w http.ResponseWriter, r *http.Request) {
 	postId, _ := strconv.Atoi(query["postId"])
 	token, ok := r.Header["Authorization"]
 	if !ok {
-		writeError(w, 403, errors.New("without Authorization").Error())
+		writeError(w, http.StatusForbidden, errors.New("without Authorization").Error())
 		return
 	}
 	user, err := controller.GetUserByToken(token[0])
 	if err != nil {
-		writeError(w, 403, err.Error())
+		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
 	sageStatus, err := controller.SageSub(postId, user.Id)
 	if err != nil {
-		writeError(w, 403, err.Error())
+		writeError(w, http.StatusForbidden, err.Error())
 	} else {
 		write(w, sageStatus)
 	}
@@ -186,17 +214,17 @@ func sageList(w http.ResponseWriter, r *http.Request) {
 func getImgToken(w http.ResponseWriter, r *http.Request) {
 	token, ok := r.Header["Authorization"]
 	if !ok {
-		writeError(w, 403, errors.New("without Authorization").Error())
+		writeError(w, http.StatusForbidden, errors.New("without Authorization").Error())
 		return
 	}
 	_, err := controller.GetUserByToken(token[0])
 	if err != nil {
-		writeError(w, 403, err.Error())
+		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
 	imgToken, err := controller.GetImgToken()
 	if err != nil {
-		writeError(w, 403, err.Error())
+		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
 	write(w, struct {
@@ -207,12 +235,12 @@ func getImgToken(w http.ResponseWriter, r *http.Request) {
 func postImgUpload(w http.ResponseWriter, r *http.Request) {
 	token, ok := r.Header["Authorization"]
 	if !ok {
-		writeError(w, 403, errors.New("without Authorization").Error())
+		writeError(w, http.StatusForbidden, errors.New("without Authorization").Error())
 		return
 	}
 	_, err := controller.GetUserByToken(token[0])
 	if err != nil {
-		writeError(w, 403, err.Error())
+		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
 	res := controller.PostImgUpload(r)

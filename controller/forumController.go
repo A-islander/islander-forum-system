@@ -185,6 +185,34 @@ func ReplyForumPost(value string, followId int, replyArr []int, userId int, medi
 	return nil
 }
 
+// 删除拥有贴
+func DeleteOwnPost(token string, postId int) bool {
+	user := model.GetUserByToken(token)
+	post, err := model.GetForumPostByPostId(postId)
+	if err != nil {
+		return false
+	}
+	if post.UserId == user.Id {
+		model.UpdateForumPostStatus(post, 2)
+		return true
+	}
+	return false
+}
+
+// 恢复拥有贴
+func RecoverOwnPost(token string, postId int) bool {
+	user := model.GetUserByToken(token)
+	post, err := model.GetForumPostByPostId(postId)
+	if err != nil {
+		return false
+	}
+	if post.UserId == user.Id {
+		model.UpdateForumPostStatus(post, 0)
+		return true
+	}
+	return false
+}
+
 // sage添加
 func SageAdd(postId int, userId int) (bool, error) {
 	post, err := GetForumPost(postId)
