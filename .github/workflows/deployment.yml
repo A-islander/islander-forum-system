@@ -37,6 +37,14 @@ jobs:
         user: ${{ secrets.SSH_USER }}
         key: ${{ secrets.SSH_KEY }}
 
+    - name: Set SSH Key
+    - uses: webfactory/ssh-agent@v0.1.1
+      with:
+        ssh-private-key: ${{ secrets.SSH_KEY }}
+
+    - name: Setup knownhosts
+      run: ssh-keyscan ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+
     - name: Start Server
       run: |
-        ssh -i ${{ secrets.SSH_KEY }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "cd ${{ secrets.SSH_DIR }}/..; docker-composer up -d --build forum_server"
+        ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "cd ${{ secrets.SSH_DIR }}/..; docker-composer up -d --build forum_server"
