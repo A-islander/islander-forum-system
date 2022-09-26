@@ -18,6 +18,9 @@ import (
 	"github.com/spf13/viper"
 )
 
+var bucket *oss.Bucket
+var ossUrl string
+
 func init() {
 	viper.SetConfigFile("./conf/config.json")
 	err := viper.ReadInConfig()
@@ -25,6 +28,16 @@ func init() {
 		log.Println(err)
 	}
 	ossUrl = viper.GetString("ossUrl")
+
+	client, err := oss.New(viper.GetString("endPoint"), viper.GetString("accessKeyId"), viper.GetString("accessKeySecret"))
+	if err != nil {
+		log.Println(err)
+	}
+
+	bucket, err = client.Bucket(viper.GetString("bucketName"))
+	if err != nil {
+		log.Println(err)
+	}
 }
 
 // 使用https://sm.ms图床
@@ -63,13 +76,22 @@ func PostImgUpload(r *http.Request) interface{} {
 	buff := new(bytes.Buffer)
 	buff.ReadFrom(file)
 
+	// 大小限制5mb
+	if buff.Len() > 5*1024*1024 {
+		return Response{
+			Success: false,
+		}
+	}
+
 	// 获取去重图片md5并且连接后缀
 	nameHash := makeMd5Hash([]byte(buff.Bytes()))
 	name := nameHash + path.Ext(header.Filename)
 	err = upload(name, buff)
 	if err != nil {
 		log.Println(err)
-		return nil
+		return Response{
+			Success: false,
+		}
 	}
 
 	res := Response{
@@ -92,17 +114,11 @@ type Response struct {
 	} `json:"data"`
 }
 
-var ossUrl string
-
 func upload(objectName string, fp io.Reader) (err error) {
-	client, err := oss.New(viper.GetString("endPoint"), viper.GetString("accessKeyId"), viper.GetString("accessKeySecret"))
-	if err != nil {
-		log.Println(err)
-	}
-
-	bucket, err := client.Bucket(viper.GetString("bucketName"))
-	if err != nil {
-		log.Println(err)
+	// 重名则不提交， TODO 哈希碰撞处理
+	isExist, err := bucket.IsObjectExist(objectName)
+	if isExist {
+		return err
 	}
 	err = bucket.PutObject(objectName, fp)
 	return err
