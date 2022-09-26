@@ -38,7 +38,7 @@ jobs:
         key: ${{ secrets.SSH_KEY }}
 
     - name: Set SSH Key
-    - uses: webfactory/ssh-agent@v0.1.1
+      uses: webfactory/ssh-agent@v0.1.1
       with:
         ssh-private-key: ${{ secrets.SSH_KEY }}
 
