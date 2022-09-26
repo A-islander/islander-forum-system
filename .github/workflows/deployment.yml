@@ -36,3 +36,7 @@ jobs:
         # port: ${{ secrets.SSH_PORT }}
         user: ${{ secrets.SSH_USER }}
         key: ${{ secrets.SSH_KEY }}
+
+    - name: Start Server
+    - run: |
+        ssh -i ${{ secrets.SSH_KEY }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "cd ${{ secrets.SSH_DIR }}/..; docker-composer up -d --build forum_server"

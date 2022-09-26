@@ -2,6 +2,9 @@
 这里是岛民论坛系统，提供查看串，发串，回串，sage服务。  
 采用微服务架构，与岛民用户系统通过rpc通信，获取用户信息。  
 
+## github actions
+本服务系统于2022/09/27使用github actions构建，若需要使用可自行修改.github/workflows下的deployment.yml
+
 ## 预计目标
 1. 串查看（完成）
 2. 板块查看（完成）
