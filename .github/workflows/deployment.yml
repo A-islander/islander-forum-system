@@ -26,3 +26,13 @@ jobs:
       run: |
         go env -w GOOS=linux
         go build
+    
+    - name: Publish
+      uses: nogsantos/scp-deploy@master
+      with:
+        src: ./forum_server
+        host: ${{ secrets.SSH_HOST }}
+        remote: ${{ secrets.SSH_DIR }}
+        # port: ${{ secrets.SSH_PORT }}
+        user: ${{ secrets.SSH_USER }}
+        key: ${{ secrets.SSH_KEY }}
