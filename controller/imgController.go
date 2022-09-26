@@ -2,16 +2,30 @@ package controller
 
 import (
 	"bytes"
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"io/ioutil"
 	"log"
-	"mime/multipart"
 	"net/http"
 	"net/url"
+	"path"
 
+	"github.com/aliyun/aliyun-oss-go-sdk/oss"
 	"github.com/forum_server/config"
+	"github.com/spf13/viper"
 )
+
+func init() {
+	viper.SetConfigFile("./conf/config.json")
+	err := viper.ReadInConfig()
+	if err != nil {
+		log.Println(err)
+	}
+	ossUrl = viper.GetString("ossUrl")
+}
 
 // 使用https://sm.ms图床
 func GetImgToken() (string, error) {
@@ -45,31 +59,57 @@ func PostImgUpload(r *http.Request) interface{} {
 	if err != nil {
 		log.Println(err)
 	}
+
 	buff := new(bytes.Buffer)
-	w := multipart.NewWriter(buff)
-	createFormFile, err := w.CreateFormFile("smfile", header.Filename)
+	buff.ReadFrom(file)
+
+	// 获取去重图片md5并且连接后缀
+	nameHash := makeMd5Hash([]byte(buff.Bytes()))
+	name := nameHash + path.Ext(header.Filename)
+	err = upload(name, buff)
+	if err != nil {
+		log.Println(err)
+		return nil
+	}
+
+	res := Response{
+		Success:   true,
+		RequestId: name,
+		Data: struct {
+			Url string "json:\"url\""
+		}{
+			Url: ossUrl + name,
+		},
+	}
+	return res
+}
+
+type Response struct {
+	Success   bool   `json:"success"`
+	RequestId string `json:"RequestId"`
+	Data      struct {
+		Url string `json:"url"`
+	} `json:"data"`
+}
+
+var ossUrl string
+
+func upload(objectName string, fp io.Reader) (err error) {
+	client, err := oss.New(viper.GetString("endPoint"), viper.GetString("accessKeyId"), viper.GetString("accessKeySecret"))
 	if err != nil {
 		log.Println(err)
 	}
-	readAll, _ := ioutil.ReadAll(file)
-	createFormFile.Write(readAll)
-	w.Close()
 
-	// 写入文件
-	req, _ := http.NewRequest(http.MethodPost, "https://sm.ms/api/v2/upload", buff)
-	token, _ := GetImgToken()
-	req.Header.Set("Authorization", token)
-	req.Header.Set("Content-Type", w.FormDataContentType())
-	client := &http.Client{}
-
-	// 转发文件
-	res, err := client.Do(req)
+	bucket, err := client.Bucket(viper.GetString("bucketName"))
 	if err != nil {
 		log.Println(err)
 	}
-	buff.ReadFrom(res.Body)
-	var ret map[string]interface{}
-	json.Unmarshal(buff.Bytes(), &ret)
+	err = bucket.PutObject(objectName, fp)
+	return err
+}
 
-	return ret
+func makeMd5Hash(file []byte) string {
+	hasher := md5.New()
+	hasher.Write(file)
+	return hex.EncodeToString(hasher.Sum(nil))
 }
