@@ -1,0 +1,24 @@
+name: Deployment
+
+on:
+  push:
+    branches: [master] # push events on source branch master push
+
+jobs:
+  islander-forum-system-deployment:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Shanghai
+    
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v2
+      with:
+        submodules: true
+    
+    - name: Golang Action
+      uses: cedrickring/golang-action@1.6.0
+
+    - name: Build Application
+      run: |
+        go version
