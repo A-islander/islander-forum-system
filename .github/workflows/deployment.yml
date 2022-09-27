@@ -50,6 +50,7 @@ jobs:
         echo "${{ secrets.SSH_KEY }}" > ./perKey
         chmod 600 ./perKey
         ls -al
+        whoami
         ssh-keyscan ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
         ssh -i ./perKey ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "cd ${{ secrets.SSH_DIR }}/..; ls -al"
         rm ./perKey
