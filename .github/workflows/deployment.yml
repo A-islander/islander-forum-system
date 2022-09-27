@@ -45,20 +45,9 @@ jobs:
     # - name: Setup knownhosts
     #   run: ssh-keyscan ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
 
-    - name: Add SSH key
-      env:
-        SSH_AUTH_SOCK: /tmp/ssh_agent.sock
-      run: |
-        mkdir -p /home/runner/.ssh
-        # Replace example.com with the hostname of the machine
-        # you're SSH-ing into
-        ssh-keyscan ${{ secrets.SSH_HOST }} >> /home/runner/.ssh/known_hosts
-        # DOKKU_SSH_KEY is the name of the repository secret
-        echo "${{ secrets.SSH_KEY }}" > /home/runner/.ssh/github_actions
-        chmod 600 /home/runner/.ssh/github_actions
-        ssh-agent -a $SSH_AUTH_SOCK > /dev/null   
-        ssh-add /home/runner/.ssh/github_actions
-
     - name: Start Server
       run: |
-        ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "cd ${{ secrets.SSH_DIR }}/..; ls -al"
+        echo "${{ secrets.SSH_KEY }}" > ./perKey
+        chmod 600 ./perKey
+        ssh -i ./perKey ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "cd ${{ secrets.SSH_DIR }}/..; ls -al"
+        rm ./perKey
