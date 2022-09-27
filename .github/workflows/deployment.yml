@@ -25,7 +25,7 @@ jobs:
     - name: Build Application
       run: |
         go env -w GOOS=linux
-        go build
+        go build -tags netgo
     
     - name: Publish
       uses: nogsantos/scp-deploy@master
