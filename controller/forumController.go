@@ -77,6 +77,9 @@ func GetForumPost(postId int) (ForumPost, error) {
 		return res, err
 	}
 	res.Name = model.GetUserById(res.UserId).Name
+	if res.Status > 0 {
+		res.Value = "该串已被隐藏或sage"
+	}
 	return res, nil
 }
 
