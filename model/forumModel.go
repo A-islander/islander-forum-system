@@ -220,9 +220,11 @@ func UpdateForumPostStatus(post ForumPost, status int) {
 	// 更新缓存
 	indexKey := "fS:pI:" + strconv.Itoa(post.PlateId)
 	countKey := "fS:pIC:" + strconv.Itoa(post.PlateId)
+	postKey := "fS:pLR:" + strconv.Itoa(post.FollowId)
 	// setForumIndexBuff(post)
 	delKey(indexKey)
 	delKey(countKey)
+	delKey(postKey)
 }
 
 func initForumIndexBuff(postArr []ForumPost) {
