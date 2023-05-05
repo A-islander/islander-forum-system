@@ -159,7 +159,7 @@ func GetForumPostListByUid(uid int, page, size int) ([]ForumPost, int) {
 // 增加buff版本
 func GetLastPostList(followIdArr []int, count int) []ForumPost {
 	var res []ForumPost
-	db.Raw("select fp.* from (select fp1.*, (select count(*) + 1 from forum_post fp2 where fp2.follow_id = fp1.follow_id and fp2.time > fp1.time) top from forum_post fp1 where follow_id in ? and status = 0) fp where top < (? + 1) order by fp.follow_id, top", followIdArr, count).Scan(&res)
+	db.Raw("select fp.* from (select fp1.*, (select count(*) + 1 from forum_post fp2 where fp2.follow_id = fp1.follow_id and fp2.time > fp1.time and fp2.status = 0) top from forum_post fp1 where follow_id in ? and status = 0) fp where top < (? + 1) order by fp.follow_id, top", followIdArr, count).Scan(&res)
 	return res
 }
 
