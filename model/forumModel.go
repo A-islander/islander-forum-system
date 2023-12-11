@@ -67,7 +67,7 @@ func GetForumPostIndexBuff(plateId int, page, size int) ([]ForumPost, int) {
 	// forumServer:postIndexCount:plateId
 	countKey := "fS:pIC:" + strconv.Itoa(plateId)
 	first := page * size
-	end := first + size
+	end := first + size - 1
 	var res []ForumPost
 	var count int
 	if checkKey(key) { // 读时更新
