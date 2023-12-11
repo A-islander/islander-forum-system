@@ -32,6 +32,11 @@ type ForumPlate struct {
 	Value  string
 }
 
+// 获取该条post在整个串中的位置
+type ForumPostId struct {
+	Id int `json:"id"`
+}
+
 func GetForumPlate() ([]ForumPlate, error) {
 	var res []ForumPlate
 	err := db.Where("status = ?", 0).Find(&res).Error
