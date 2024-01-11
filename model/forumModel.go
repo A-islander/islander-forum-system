@@ -32,6 +32,11 @@ type ForumPlate struct {
 	Value  string
 }
 
+// 获取该条post在整个串中的位置
+type ForumPostId struct {
+	Id int `json:"id"`
+}
+
 func GetForumPlate() ([]ForumPlate, error) {
 	var res []ForumPlate
 	err := db.Where("status = ?", 0).Find(&res).Error
@@ -62,7 +67,7 @@ func GetForumPostIndexBuff(plateId int, page, size int) ([]ForumPost, int) {
 	// forumServer:postIndexCount:plateId
 	countKey := "fS:pIC:" + strconv.Itoa(plateId)
 	first := page * size
-	end := first + size
+	end := first + size - 1
 	var res []ForumPost
 	var count int
 	if checkKey(key) { // 读时更新
