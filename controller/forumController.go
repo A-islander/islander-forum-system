@@ -119,6 +119,11 @@ func getLastReply(res []ForumPost) {
 	}
 }
 
+// 获取该串回帖数
+func GetForumPostCount(postId int) (int, error) {
+	return model.GetForumPostCount(postId)
+}
+
 // 获取串页
 func GetForumPostList(postId int, page int, size int) ([]ForumPost, int, error) {
 	if _, err := GetForumPost(postId); err != nil {

@@ -134,6 +134,12 @@ func GetForumPostList(postId int, page int, size int) ([]ForumPost, int) {
 	return res, int(count)
 }
 
+func GetForumPostCount(postId int) (int, error) {
+	var count int64
+	err := db.Where("(follow_id = ? and status = 0) or id = ?", postId, postId).Count(&count).Error
+	return int(count), err
+}
+
 // TODO 获取单个帖子
 func GetForumPostByPostId(postId int) (ForumPost, error) {
 	var res ForumPost
