@@ -58,6 +58,21 @@ func getForumPost(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func getForumPostCount(w http.ResponseWriter, r *http.Request) {
+	query := get(r)
+	postId, _ := strconv.Atoi(query["postId"])
+	count, err := controller.GetForumPostCount(postId)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+	} else {
+		var res struct {
+			Count int `json:"count"`
+		}
+		res.Count = count
+		write(w, res)
+	}
+}
+
 func getForumPostIndex(w http.ResponseWriter, r *http.Request) {
 	query := get(r)
 	plateId, _ := strconv.Atoi(query["plateId"])

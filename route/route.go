@@ -25,6 +25,7 @@ func Init() *http.ServeMux {
 		{Url: "indexLast", Handler: http.HandlerFunc(getForumIndexLastTime)},
 		{Url: "userList", Handler: http.HandlerFunc(getUserForumPostList)},
 		{Url: "post", Handler: http.HandlerFunc(postForumPost)},
+		{Url: "postCount", Handler: http.HandlerFunc(getForumPostCount)},
 		{Url: "reply", Handler: http.HandlerFunc(replyForumPost)},
 		{Url: "sage/add", Handler: http.HandlerFunc(sageAdd)},
 		{Url: "sage/sub", Handler: http.HandlerFunc(sageSub)},
