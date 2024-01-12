@@ -141,7 +141,7 @@ func GetForumPostList(postId int, page int, size int) ([]ForumPost, int) {
 
 func GetForumPostCount(postId int) (int, error) {
 	var count int64
-	err := db.Where("(follow_id = ? and status = 0) or id = ?", postId, postId).Count(&count).Error
+	err := db.Model(&ForumPost{}).Where("(follow_id = ? and status = 0) or id = ?", postId, postId).Count(&count).Error
 	return int(count), err
 }
 
