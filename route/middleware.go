@@ -7,6 +7,9 @@ import (
 	"github.com/forum_server/model"
 )
 
+// 访问限制
+var visitCount = 50
+
 func methodMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -34,9 +37,8 @@ func calcVisitTimeMiddleware(next http.Handler) http.Handler {
 		key := "fS:ipVC:" + ip
 		// 十秒内访问次数
 		count := model.AddCount(key, 1, 10)
-		if count > 10 {
-			// writeError(w, 403, errors.New("visited too much").Error())
-			writeError(w, http.StatusTooManyRequests, errors.New("too many request").Error())
+		if count > visitCount {
+			writeError(w, http.StatusForbidden, errors.New("visited too much").Error())
 			return
 		}
 		next.ServeHTTP(w, r)
