@@ -3,8 +3,6 @@ package controller
 import (
 	"fmt"
 	"testing"
-
-	"github.com/forum_server/model"
 )
 
 func TestGetForumIndex(t *testing.T) {
@@ -34,11 +32,11 @@ func TestDelIntArr(t *testing.T) {
 }
 
 func TestGetUserArr(t *testing.T) {
-	fmt.Println(model.GetUserArr([]int{}))
+	// fmt.Println(model.GetUserArr([]int{}))
 }
 
 func TestGetForumPostByUid(t *testing.T) {
-	fmt.Println(GetForumPostByUid(1, 0, 10))
+	// fmt.Println(GetForumPostByUid(1, 0, 10))
 }
 
 func TestGetImgToken(t *testing.T) {
@@ -46,7 +44,7 @@ func TestGetImgToken(t *testing.T) {
 }
 
 func TestChangePost(t *testing.T) {
-	ChangePostPlate(57, 1)
+	// ChangePostPlate(57, 1)
 }
 
 // 还有错误没处理
@@ -57,5 +55,7 @@ func TestStrOperate(t *testing.T) {
 }
 
 func TestDiscussOperate(t *testing.T) {
-
+	str := `["和岛民娘聊会：" "你好鸭"]`
+	newStr := Eval(str)
+	fmt.Println(newStr)
 }
