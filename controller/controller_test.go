@@ -55,3 +55,7 @@ func TestStrOperate(t *testing.T) {
 	newStr := Eval(str)
 	fmt.Println(newStr)
 }
+
+func TestDiscussOperate(t *testing.T) {
+
+}

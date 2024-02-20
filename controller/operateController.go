@@ -34,6 +34,8 @@ func operate(atom string, param []Value) (Value, error) {
 		return rollOperate(param)
 	case "decide":
 		return decideOperate(param)
+	case "discuss":
+		return discussOperate(param)
 	}
 	return Value{}, errors.New("eval error")
 }
@@ -93,5 +95,10 @@ func decideOperate(param []Value) (Value, error) {
 		}
 	} // 如果这样注释有bug
 	ret.setValue(param[rand.Intn(len(param))].Str, 1)
+	return ret, nil
+}
+
+func discussOperate(param []Value) (Value, error) {
+	ret := Value{}
 	return ret, nil
 }
