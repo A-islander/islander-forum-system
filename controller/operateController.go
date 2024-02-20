@@ -34,7 +34,7 @@ func operate(atom string, param []Value) (Value, error) {
 		return rollOperate(param)
 	case "decide":
 		return decideOperate(param)
-	case "discuss":
+	case "和岛民娘聊会：":
 		return discussOperate(param)
 	}
 	return Value{}, errors.New("eval error")
@@ -100,5 +100,14 @@ func decideOperate(param []Value) (Value, error) {
 
 func discussOperate(param []Value) (Value, error) {
 	ret := Value{}
+	if param[0].Type != 2 {
+		return ret, errors.New("eval error: value is not string")
+	}
+	str := param[0].Str
+
+	// 回复str
+	resStr := str
+
+	ret.Str = resStr
 	return ret, nil
 }
