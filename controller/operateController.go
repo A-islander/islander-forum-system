@@ -3,7 +3,6 @@ package controller
 import (
 	"errors"
 	"math/rand"
-	"time"
 )
 
 // 操作
@@ -24,7 +23,7 @@ type OperateType struct {
 
 // 操作对应表
 func operate(atom string, param []Value) (Value, error) {
-	rand.Seed(time.Now().UnixNano())
+	// rand.Seed(time.Now().UnixNano())
 	switch atom {
 	case "+":
 		return addOperate(param)
@@ -37,7 +36,7 @@ func operate(atom string, param []Value) (Value, error) {
 	case "和岛民娘聊会：":
 		return discussOperate(param)
 	}
-	return Value{}, errors.New("eval error")
+	return Value{}, errors.New("eval error: operate not found")
 }
 
 func addOperate(param []Value) (Value, error) {
@@ -45,7 +44,7 @@ func addOperate(param []Value) (Value, error) {
 	sum := 0
 	for i := 0; i < len(param); i++ {
 		if param[i].Type != 2 {
-			return ret, errors.New("eval error")
+			return ret, errors.New("eval error: value is not number")
 		}
 		sum += param[i].Num
 	}
@@ -59,7 +58,7 @@ func subOperate(param []Value) (Value, error) {
 	sum := 0
 	for i := 0; i < len(param); i++ {
 		if param[i].Type != 2 {
-			return ret, errors.New("eval error")
+			return ret, errors.New("eval error: value is not number")
 		}
 		sum -= param[i].Num
 	}
@@ -72,11 +71,11 @@ func rollOperate(param []Value) (Value, error) {
 	ret := Value{}
 	// 验参
 	if len(param) != 2 {
-		return ret, errors.New("eval error")
+		return ret, errors.New("eval error: param error")
 	}
 	for i := 0; i < len(param); i++ {
 		if param[i].Type != 2 {
-			return ret, errors.New("eval error")
+			return ret, errors.New("eval error: value is not number")
 		}
 	}
 	start := param[0].Num
@@ -91,7 +90,7 @@ func decideOperate(param []Value) (Value, error) {
 	ret := Value{}
 	for i := 0; i < len(param); i++ {
 		if param[i].Type != 1 {
-			return ret, errors.New("eval error")
+			return ret, errors.New("eval error: value is not string")
 		}
 	} // 如果这样注释有bug
 	ret.setValue(param[rand.Intn(len(param))].Str, 1)
@@ -100,7 +99,7 @@ func decideOperate(param []Value) (Value, error) {
 
 func discussOperate(param []Value) (Value, error) {
 	ret := Value{}
-	if param[0].Type != 2 {
+	if param[0].Type != 1 {
 		return ret, errors.New("eval error: value is not string")
 	}
 	str := param[0].Str
@@ -108,6 +107,11 @@ func discussOperate(param []Value) (Value, error) {
 	// 回复str
 	resStr := str
 
-	ret.Str = resStr
+	ret.setValue(resStr, 1)
+
+	go func(str string) {
+
+	}(resStr)
+
 	return ret, nil
 }

@@ -55,7 +55,7 @@ func TestStrOperate(t *testing.T) {
 }
 
 func TestDiscussOperate(t *testing.T) {
-	str := `["和岛民娘聊会：" "你好鸭"]`
+	str := `[和岛民娘聊会：]`
 	newStr := Eval(str)
 	fmt.Println(newStr)
 }
