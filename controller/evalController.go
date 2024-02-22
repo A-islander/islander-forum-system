@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strconv"
@@ -62,13 +63,13 @@ func FindExpression(str string) []ExprStr {
 }
 
 // 传入待求值字符串
-func Eval(expression string) string {
+func Eval(expression string, ctx context.Context) string {
 	exprArr := FindExpression(expression)
 	var newStr string
 	start := 0
 	for i := 0; i < len(exprArr); i++ {
 		node, _ := parseValue(exprArr[i].Str, 0)
-		_, err := evalValue(node)
+		_, err := evalValue(node, ctx)
 		if err != nil {
 			fmt.Println(err)
 		}
@@ -80,7 +81,7 @@ func Eval(expression string) string {
 }
 
 // 回值和类型
-func evalValue(expr *ExprNode) (Value, error) {
+func evalValue(expr *ExprNode, ctx context.Context) (Value, error) {
 	// 没有子节点了
 	if len(expr.Param) == 0 {
 		// 字符串
@@ -102,12 +103,12 @@ func evalValue(expr *ExprNode) (Value, error) {
 	}
 	// expr.param 都要求值
 	for i := 0; i < len(expr.Param); i++ {
-		value, err := evalValue(expr.Param[i])
+		value, err := evalValue(expr.Param[i], ctx)
 		if err != nil {
 			return value, err
 		}
 	}
-	value, err := evalValueOper(expr)
+	value, err := evalValueOper(expr, ctx)
 	if err != nil {
 		return expr.Value, errors.New("eval error")
 	}
@@ -116,12 +117,12 @@ func evalValue(expr *ExprNode) (Value, error) {
 }
 
 // 求值操作
-func evalValueOper(expr *ExprNode) (Value, error) {
+func evalValueOper(expr *ExprNode, ctx context.Context) (Value, error) {
 	var param []Value
 	for i := 0; i < len(expr.Param); i++ {
 		param = append(param, expr.Param[i].Value)
 	}
-	return operate(expr.Atom, param)
+	return operate(expr.Atom, param, ctx)
 }
 
 // 回查找的字符串，和游标index

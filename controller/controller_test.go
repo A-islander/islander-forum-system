@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"fmt"
 	"testing"
 )
@@ -50,12 +51,14 @@ func TestChangePost(t *testing.T) {
 // 还有错误没处理
 func TestStrOperate(t *testing.T) {
 	str := `[decide + -]`
-	newStr := Eval(str)
+	ctx := context.WithValue(context.Background(), "postId", 1)
+	newStr := Eval(str, ctx)
 	fmt.Println(newStr)
 }
 
 func TestDiscussOperate(t *testing.T) {
 	str := `[和岛民娘聊会：]`
-	newStr := Eval(str)
+	ctx := context.WithValue(context.Background(), "postId", 1)
+	newStr := Eval(str, ctx)
 	fmt.Println(newStr)
 }

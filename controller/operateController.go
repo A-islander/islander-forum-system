@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"math/rand"
 )
@@ -22,24 +23,24 @@ type OperateType struct {
 }
 
 // 操作对应表
-func operate(atom string, param []Value) (Value, error) {
+func operate(atom string, param []Value, ctx context.Context) (Value, error) {
 	// rand.Seed(time.Now().UnixNano())
 	switch atom {
 	case "+":
-		return addOperate(param)
+		return addOperate(param, ctx)
 	case "-":
-		return subOperate(param)
+		return subOperate(param, ctx)
 	case "roll":
-		return rollOperate(param)
+		return rollOperate(param, ctx)
 	case "decide":
-		return decideOperate(param)
+		return decideOperate(param, ctx)
 	case "和岛民娘聊会：":
-		return discussOperate(param)
+		return discussOperate(param, ctx)
 	}
 	return Value{}, errors.New("eval error: operate not found")
 }
 
-func addOperate(param []Value) (Value, error) {
+func addOperate(param []Value, ctx context.Context) (Value, error) {
 	ret := Value{}
 	sum := 0
 	for i := 0; i < len(param); i++ {
@@ -53,7 +54,7 @@ func addOperate(param []Value) (Value, error) {
 	return ret, nil
 }
 
-func subOperate(param []Value) (Value, error) {
+func subOperate(param []Value, ctx context.Context) (Value, error) {
 	ret := Value{}
 	sum := 0
 	for i := 0; i < len(param); i++ {
@@ -67,7 +68,7 @@ func subOperate(param []Value) (Value, error) {
 	return ret, nil
 }
 
-func rollOperate(param []Value) (Value, error) {
+func rollOperate(param []Value, ctx context.Context) (Value, error) {
 	ret := Value{}
 	// 验参
 	if len(param) != 2 {
@@ -86,7 +87,7 @@ func rollOperate(param []Value) (Value, error) {
 	return ret, nil
 }
 
-func decideOperate(param []Value) (Value, error) {
+func decideOperate(param []Value, ctx context.Context) (Value, error) {
 	ret := Value{}
 	for i := 0; i < len(param); i++ {
 		if param[i].Type != 1 {
@@ -97,7 +98,7 @@ func decideOperate(param []Value) (Value, error) {
 	return ret, nil
 }
 
-func discussOperate(param []Value) (Value, error) {
+func discussOperate(param []Value, ctx context.Context) (Value, error) {
 	ret := Value{}
 	if param[0].Type != 1 {
 		return ret, errors.New("eval error: value is not string")

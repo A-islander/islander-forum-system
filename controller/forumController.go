@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -39,9 +40,14 @@ type ForumPlate struct {
 	Value  string `json:"value"`
 }
 
-func NewForumPost(value string, plateId int, userId int) *ForumPost {
+type FollowIdKey struct{}
+type PlateIdKey struct{}
+
+func NewForumPost(value string, plateId int, followId int, userId int) *ForumPost {
+	ctx := context.WithValue(context.Background(), PlateIdKey{}, plateId)
+	ctx = context.WithValue(ctx, FollowIdKey{}, followId)
 	// 传入字符串操作
-	value = Eval(value)
+	value = Eval(value, ctx)
 	return &ForumPost{
 		Value:     value,
 		PlateId:   plateId,
@@ -149,7 +155,7 @@ func PostForumPost(value string, title string, replyArr []int, plateId int, user
 	if value == "" || len(value) > 8192 || len(title) > 128 || len(mediaUrl) > 2048 {
 		return errors.New("input too long or value is null")
 	}
-	post := NewForumPost(value, plateId, userId)
+	post := NewForumPost(value, plateId, 0, userId)
 	post.Title = title
 	post.MediaUrl = mediaUrl
 	post.LastReplyTime = post.Time
@@ -173,7 +179,7 @@ func ReplyForumPost(value string, followId int, replyArr []int, userId int, medi
 	if err != nil || mainPost.FollowId != 0 {
 		return errors.New("replyId is illegal")
 	}
-	post := NewForumPost(value, mainPost.PlateId, userId)
+	post := NewForumPost(value, mainPost.PlateId, followId, userId)
 	post.FollowId = mainPost.Id
 	post.MediaUrl = mediaUrl
 	post.LastReplyTime = post.Time
