@@ -5,6 +5,8 @@ import (
 	"errors"
 	"log"
 	"math/rand"
+
+	chatmodel "github.com/forum_server/model/chatModel"
 )
 
 // 操作
@@ -106,8 +108,13 @@ func discussOperate(param []Value, ctx context.Context) (Value, error) {
 	}
 	str := param[0].Str
 
+	resp, err := chatmodel.GetChat(str)
+	if err != nil {
+		return ret, err
+	}
+
 	// 回复str
-	resStr := str
+	resStr := resp.Data
 
 	ret.setValue(resStr, 1)
 
