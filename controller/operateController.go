@@ -108,26 +108,23 @@ func discussOperate(param []Value, ctx context.Context) (Value, error) {
 	}
 	str := param[0].Str
 
-	resp, err := chatmodel.GetChat(str)
-	if err != nil {
-		return ret, err
-	}
-
-	// 回复str
-	resStr := resp.Data
-
 	ret.setValue("岛民娘回复中...", 1)
 
 	foo := func(str string, ctx context.Context) {
+		resp, err := chatmodel.GetChat(str)
+		if err != nil {
+			log.Println(err)
+			return
+		}
 		followId, err := GetFollowId(ctx)
 		if err != nil {
 			log.Println(err)
 			return
 		}
 
-		ReplyForumPost(str, followId, []int{}, 7, "", "岛民娘")
+		ReplyForumPost(resp.Data, followId, []int{}, 7, "", "岛民娘")
 	}
-	go foo(resStr, ctx)
+	go foo(str, ctx)
 
 	return ret, nil
 }
