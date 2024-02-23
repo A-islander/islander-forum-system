@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"log"
 	"math/rand"
 )
 
@@ -34,7 +35,7 @@ func operate(atom string, param []Value, ctx context.Context) (Value, error) {
 		return rollOperate(param, ctx)
 	case "decide":
 		return decideOperate(param, ctx)
-	case "和岛民娘聊会：":
+	case "和岛民娘聊会":
 		return discussOperate(param, ctx)
 	}
 	return Value{}, errors.New("eval error: operate not found")
@@ -110,9 +111,16 @@ func discussOperate(param []Value, ctx context.Context) (Value, error) {
 
 	ret.setValue(resStr, 1)
 
-	go func(str string) {
+	foo := func(str string, ctx context.Context) {
+		followId, err := GetFollowId(ctx)
+		if err != nil {
+			log.Println(err)
+			return
+		}
 
-	}(resStr)
+		ReplyForumPost(str, followId, []int{}, 7, "", "岛民娘")
+	}
+	go foo(resStr, ctx)
 
 	return ret, nil
 }

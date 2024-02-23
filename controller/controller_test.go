@@ -57,8 +57,8 @@ func TestStrOperate(t *testing.T) {
 }
 
 func TestDiscussOperate(t *testing.T) {
-	str := `[和岛民娘聊会：]`
-	ctx := context.WithValue(context.Background(), "postId", 1)
+	str := `[和岛民娘聊会 "123123"]`
+	ctx := context.WithValue(context.Background(), FollowIdKey{}, 1)
 	newStr := Eval(str, ctx)
 	fmt.Println(newStr)
 }

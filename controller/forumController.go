@@ -43,6 +43,22 @@ type ForumPlate struct {
 type FollowIdKey struct{}
 type PlateIdKey struct{}
 
+func GetFollowId(ctx context.Context) (int, error) {
+	followId, ok := ctx.Value(FollowIdKey{}).(int)
+	if !ok {
+		return 0, errors.New("followId not found")
+	}
+	return followId, nil
+}
+
+func GetPlateId(ctx context.Context) (int, error) {
+	plateId, ok := ctx.Value(PlateIdKey{}).(int)
+	if !ok {
+		return 0, errors.New("followId not found")
+	}
+	return plateId, nil
+}
+
 func NewForumPost(value string, plateId int, followId int, userId int) *ForumPost {
 	ctx := context.WithValue(context.Background(), PlateIdKey{}, plateId)
 	ctx = context.WithValue(ctx, FollowIdKey{}, followId)
