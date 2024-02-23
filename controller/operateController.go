@@ -116,7 +116,7 @@ func discussOperate(param []Value, ctx context.Context) (Value, error) {
 	// 回复str
 	resStr := resp.Data
 
-	ret.setValue(resStr, 1)
+	ret.setValue("岛民娘回复中...", 1)
 
 	foo := func(str string, ctx context.Context) {
 		followId, err := GetFollowId(ctx)
