@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/spf13/viper"
 )
 
 type ChatResp struct {
@@ -14,9 +16,24 @@ type ChatResp struct {
 	Msg  string `json:"msg"`
 }
 
+func GetChatUrl() (string, error) {
+	var url string
+	viper.SetConfigFile("./conf/config.json")
+	err := viper.ReadInConfig()
+	if err != nil {
+		return url, err
+	}
+	url = viper.GetString("chatUrl")
+	return url, nil
+}
+
 func GetChat(str string) (ChatResp, error) {
 	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get("http://swap-api.juhuan.top/chat/defaultSend?str=" + str)
+	url, err := GetChatUrl()
+	if err != nil {
+		return ChatResp{}, err
+	}
+	resp, err := client.Get(url + "defaultSend?str=" + str)
 	if err != nil {
 		return ChatResp{}, err
 	}

@@ -8,5 +8,13 @@
     "redisIp": "",
     "buffTime": 0,
     "imgUserName": "",
-    "imgPassWord": ""
+    "imgPassWord": "",
+
+    "endpoint": "",
+    "accessKeyId": "",
+    "accessKeySecret": "",
+    "bucketName": "",
+    "ossUrl": "",
+
+    "chatUrl": ""
 }
