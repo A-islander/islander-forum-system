@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"math/rand"
 
@@ -112,6 +113,7 @@ func discussOperate(param []Value, ctx context.Context) (Value, error) {
 
 	foo := func(str string, ctx context.Context) {
 		resp, err := chatmodel.GetChat(str)
+		fmt.Println(resp, err)
 		if err != nil {
 			log.Println(err)
 			return
