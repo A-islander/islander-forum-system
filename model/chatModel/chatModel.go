@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -36,7 +37,7 @@ func GetChat(str string) (ChatResp, error) {
 	url = url + "defaultSend?str=" + str
 
 	resp, err := http.Get(url)
-	// fmt.Println("GetChat", url, resp, err)
+	fmt.Println("GetChat", url, resp, err)
 	if resp.StatusCode != 200 {
 		return ChatResp{}, errors.New("request status fault " + strconv.Itoa(resp.StatusCode))
 	}
