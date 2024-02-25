@@ -3,9 +3,10 @@ package chatmodel
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
-	"time"
+	"strconv"
 
 	"github.com/spf13/viper"
 )
@@ -28,12 +29,17 @@ func GetChatUrl() (string, error) {
 }
 
 func GetChat(str string) (ChatResp, error) {
-	client := &http.Client{Timeout: 5 * time.Second}
 	url, err := GetChatUrl()
 	if err != nil {
 		return ChatResp{}, err
 	}
-	resp, err := client.Get(url + "defaultSend?str=" + str)
+	url = url + "defaultSend?str=" + str
+
+	resp, err := http.Get(url)
+	// fmt.Println("GetChat", url, resp, err)
+	if resp.StatusCode != 200 {
+		return ChatResp{}, errors.New("request status fault " + strconv.Itoa(resp.StatusCode))
+	}
 	if err != nil {
 		return ChatResp{}, err
 	}
