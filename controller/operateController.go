@@ -3,11 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
-	"fmt"
-	"log"
 	"math/rand"
-
-	chatmodel "github.com/forum_server/model/chatModel"
 )
 
 // 操作
@@ -111,22 +107,7 @@ func discussOperate(param []Value, ctx context.Context) (Value, error) {
 
 	ret.setValue("岛民娘回复中...", 1)
 
-	foo := func(str string, ctx context.Context) {
-		resp, err := chatmodel.GetChat(str)
-		fmt.Println("discussOperate", resp, err)
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		followId, err := GetFollowId(ctx)
-		if err != nil {
-			log.Println(err)
-			return
-		}
-
-		ReplyForumPost(resp.Data, followId, []int{}, 7, "", "岛民娘")
-	}
-	go foo(str, ctx)
+	go posterReply(str, ctx)
 
 	return ret, nil
 }

@@ -46,7 +46,7 @@ func TestGetImgToken(t *testing.T) {
 }
 
 func TestChangePost(t *testing.T) {
-	// ChangePostPlate(57, 1)
+	// ChangePostPlate(14866, 6)
 }
 
 // 还有错误没处理
