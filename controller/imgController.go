@@ -76,8 +76,8 @@ func PostImgUpload(r *http.Request) interface{} {
 	buff := new(bytes.Buffer)
 	buff.ReadFrom(file)
 
-	// 大小限制5mb
-	if buff.Len() > 5*1024*1024 {
+	// 大小限制20mb
+	if buff.Len() > 20*1024*1024 {
 		return Response{
 			Success: false,
 		}
