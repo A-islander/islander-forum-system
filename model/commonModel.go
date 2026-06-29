@@ -16,6 +16,7 @@ import (
 var ctx = context.Background()
 var db = newDB()
 var rdb = newRdb()
+var userDB = newUserDB()
 
 // 时间从设置里拿
 var buffTime = time.Second * time.Duration(config.GetConfig().BuffTime)
@@ -46,6 +47,31 @@ func newDB() *gorm.DB {
 	sqlDb.SetMaxOpenConns(50)
 	sqlDb.SetConnMaxLifetime(time.Hour)
 	return db
+}
+
+// newUserDB 初始化 user 相关表（user / user_token / user_oauth）所在的 DB 连接。
+// 合并自 user-system：默认与 forum 同库（user 表与 forum 表共库时直接复用 db），
+// 若配置了独立的 UserDatabase 则连独立库（支持分库部署，零破坏）。
+func newUserDB() *gorm.DB {
+	conf := config.GetConfig()
+	if conf.UserDatabase == "" {
+		return db
+	}
+	dsn := conf.UserName + ":" + conf.PassWord + "@tcp(" + conf.Ip + ")/" + conf.UserDatabase + "?charset=utf8mb4&timeout=30s"
+	udb, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	if err != nil {
+		log.Fatal(err)
+	}
+	sqlDb, _ := udb.DB()
+	sqlDb.SetMaxIdleConns(10)
+	sqlDb.SetMaxOpenConns(50)
+	sqlDb.SetConnMaxLifetime(time.Hour)
+	return udb
+}
+
+// userDb 返回 user 相关表所用的 DB（默认即全局 db）。
+func userDb() *gorm.DB {
+	return userDB
 }
 
 func addZsetBuff(key string, score int, data interface{}) {

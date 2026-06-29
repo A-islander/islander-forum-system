@@ -98,7 +98,7 @@ func GetForumPost(postId int) (ForumPost, error) {
 	if err != nil {
 		return res, err
 	}
-	res.Name = model.GetUserById(res.UserId).Name
+	res.Name = model.GetUser(res.UserId).Name
 	if res.Status > 0 {
 		res.Value = "该串已被隐藏或sage"
 	}
@@ -243,7 +243,9 @@ func RecoverOwnPost(token string, postId int) bool {
 	return false
 }
 
-// sage添加
+// sage添加（原子版）
+// 用 MySQL JSON 原子函数完成投票变更，消除并发 read-modify-write 丢票问题。
+// 返回值 sageStatus 含义：true=执行了「加入/取消对侧」，false=本次是「取消」。
 func SageAdd(postId int, userId int) (bool, error) {
 	post, err := GetForumPost(postId)
 	if err != nil {
@@ -252,66 +254,53 @@ func SageAdd(postId int, userId int) (bool, error) {
 	if post.Status != 0 {
 		return false, errors.New("it's sage")
 	}
+
 	addOk := findIntArr(post.SageAddId, userId)
-	subOk := findIntArr(post.SageSubId, userId)
-
-	// 是否已经反对sage
-	if subOk {
-		// 取消反sage
-		post.SageSubId = delIntArr(post.SageSubId, userId)
-		model.UpdateSageSub(transferForumPost(post))
-	}
-
-	sageStatus := true
-	// 是否已经同意sage
 	if !addOk {
-		post.SageAddId = append(post.SageAddId, userId)
-		model.UpdateSageAdd(transferForumPost(post))
-		SageSet(post)
-
-	} else {
-		// 取消sage
-		post.SageAddId = delIntArr(post.SageAddId, userId)
-		model.UpdateSageAdd(transferForumPost(post))
-		sageStatus = false
+		// 加入 add 阵营（model 层会原子地从 sub 阵营互斥移除）
+		addArr, subArr := model.SageAddPostUser(postId, userId)
+		SageSetByCount(postId, addArr, subArr)
+		return true, nil
 	}
-	return sageStatus, nil
+	// 已赞 → 取消赞
+	model.SageRemovePostUser(postId, userId)
+	return false, nil
 }
 
-// 反sage添加
+// 反sage添加（原子版）
 func SageSub(postId int, userId int) (bool, error) {
 	post, err := GetForumPost(postId)
 	if err != nil {
 		return false, err
 	}
 	addOk := findIntArr(post.SageAddId, userId)
-	subOk := findIntArr(post.SageSubId, userId)
-
-	// 是否已经同意sage
 	if addOk {
-		// 取消sage
-		post.SageAddId = delIntArr(post.SageAddId, userId)
-		model.UpdateSageAdd(transferForumPost(post))
+		// 已赞 → 取消赞（取消对侧时不需要触发 sage 判定，赞数只减不增）
+		model.SageRemovePostUser(postId, userId)
+		return false, nil
 	}
 
-	sageStatus := true
-	// 是否已经反对sage
+	subOk := findIntArr(post.SageSubId, userId)
 	if !subOk {
-		post.SageSubId = append(post.SageSubId, userId)
-		model.UpdateSageSub(transferForumPost(post))
-	} else {
-		// 取消反sage
-		post.SageSubId = delIntArr(post.SageSubId, userId)
-		model.UpdateSageSub(transferForumPost(post))
-		sageStatus = false
+		// 加入 sub 阵营（model 层会原子地从 add 阵营互斥移除）
+		addArr, subArr := model.SageSubPostUser(postId, userId)
+		SageSetByCount(postId, addArr, subArr)
+		return true, nil
 	}
-	return sageStatus, nil
+	// 已踩 → 取消踩
+	model.SageRemoveSubUser(postId, userId)
+	return false, nil
 }
 
-func SageSet(post ForumPost) {
+// SageSetByCount 根据最新投票数判断是否触发 sage 隐藏。
+// 使用投票后从 DB 重读的真实数组，避免基于脏数据判定。
+func SageSetByCount(postId int, addArr, subArr []int) {
 	conf := config.GetConfig()
-	if len(post.SageAddId)-len(post.SageSubId) > conf.SageNum {
-		model.UpdateForumPostStatus(transferForumPost(post), 1)
+	if len(addArr)-len(subArr) > conf.SageNum {
+		var post model.ForumPost
+		post.Id = postId
+		// 需 plateId 以便清缓存：补查一次拿 plate_id
+		model.UpdateForumPostStatusById(postId, 1)
 	}
 }
 

@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"strconv"
 
 	"gorm.io/gorm"
@@ -168,9 +169,36 @@ func GetForumPostListByUid(uid int, page, size int) ([]ForumPost, int) {
 }
 
 // 增加buff版本
+// GetLastPostList 取每个 followId 串内最新的 count 条回复（按 time 倒序的前 count 条）。
+//
+// 旧实现用相关子查询算楼层 top（O(N²)，外层每条都跑内层 count），热帖首页直接爆炸。
+// 现改为：一次查询取出这些串的全部正常回复（ORDER BY follow_id, time DESC 走索引），
+// 应用层按 follow_id 分组各截取前 count 条 —— 单次扫描 O(N)，且结果顺序与旧实现等价。
+// 配合 GetLastPostListBuff 缓存，命中缓存时连这次查询都省了。
 func GetLastPostList(followIdArr []int, count int) []ForumPost {
-	var res []ForumPost
-	db.Raw("select fp.* from (select fp1.*, (select count(*) + 1 from forum_post fp2 where fp2.follow_id = fp1.follow_id and fp2.time > fp1.time and fp2.status = 0) top from forum_post fp1 where follow_id in ? and status = 0) fp where top < (? + 1) order by fp.follow_id, top", followIdArr, count).Scan(&res)
+	if len(followIdArr) == 0 || count <= 0 {
+		return []ForumPost{}
+	}
+	var all []ForumPost
+	db.Where("follow_id IN ? AND status = 0", followIdArr).Order("follow_id, time DESC").Find(&all)
+
+	// 按 follow_id 分组，每组只保留最新的 count 条；整体保持按 follow_id 升序、组内 time DESC。
+	res := make([]ForumPost, 0, len(all))
+	curId := 0
+	curCnt := 0
+	first := true
+	for i := 0; i < len(all); i++ {
+		p := all[i]
+		if first || p.FollowId != curId {
+			curId = p.FollowId
+			curCnt = 0
+			first = false
+		}
+		if curCnt < count {
+			res = append(res, p)
+			curCnt++
+		}
+	}
 	return res
 }
 
@@ -214,16 +242,95 @@ func UpdateForumPostCount(postId int, time int) {
 	delKey(countKey)
 }
 
+// UpdateSageAdd / UpdateSageSub 保留兼容（非原子，仅用于无并发场景）。
 func UpdateSageAdd(post ForumPost) {
 	db.Model(&post).Update("sage_add_id", post.SageAddId)
-	indexKey := "fS:pI:" + strconv.Itoa(post.PlateId)
-	delKey(indexKey)
+	delSageIndexBuff(post.PlateId)
 }
 
 func UpdateSageSub(post ForumPost) {
 	db.Model(&post).Update("sage_sub_id", post.SageSubId)
-	indexKey := "fS:pI:" + strconv.Itoa(post.PlateId)
+	delSageIndexBuff(post.PlateId)
+}
+
+// delSageIndexBuff 清除板块首页缓存（sage 变动影响排序）。
+func delSageIndexBuff(plateId int) {
+	indexKey := "fS:pI:" + strconv.Itoa(plateId)
 	delKey(indexKey)
+}
+
+// SageAddPostUser 原子地把 userId 加入 sageAdd 阵营，并从 sageSub 阵营移除（互斥）。
+// 返回更新后的 sageAddId / sageSubId 数组（供上层判断是否触发 SageSet）。
+// 利用 MySQL JSON 函数在单条 UPDATE 内完成，消除 read-modify-write 竞态：
+//   - CAST(? AS JSON) 保证 userId 作为 JSON 数字参与比对/插入，类型一致；
+//   - JSON_CONTAINS 判存在，NOT 取反 → 天然防重复追加；
+//   - 两阵营互斥移除用 JSON_REMOVE + JSON_UNQUOTE(JSON_SEARCH) 定位。
+func SageAddPostUser(postId, userId int) (addArr, subArr []int) {
+	jv := jsonValue(userId)
+	// 1) 互斥：先从 sub 阵营移除（若存在）
+	db.Model(&ForumPost{}).Where("id = ? AND JSON_CONTAINS(sage_sub_id, CAST(? AS JSON))", postId, jv).
+		Update("sage_sub_id", gorm.Expr("JSON_REMOVE(sage_sub_id, JSON_UNQUOTE(JSON_SEARCH(sage_sub_id, 'one', CAST(? AS JSON))))", jv))
+	// 2) 加入 add 阵营（仅当不存在时）
+	db.Model(&ForumPost{}).Where("id = ? AND NOT JSON_CONTAINS(sage_add_id, CAST(? AS JSON))", postId, jv).
+		Update("sage_add_id", gorm.Expr("JSON_ARRAY_APPEND(sage_add_id, '$', CAST(? AS JSON))", jv))
+	return readSageArr(postId)
+}
+
+// SageRemovePostUser 原子地把 userId 从 sageAdd 阵营移除（取消赞）。
+func SageRemovePostUser(postId, userId int) (addArr, subArr []int) {
+	jv := jsonValue(userId)
+	db.Model(&ForumPost{}).Where("id = ? AND JSON_CONTAINS(sage_add_id, CAST(? AS JSON))", postId, jv).
+		Update("sage_add_id", gorm.Expr("JSON_REMOVE(sage_add_id, JSON_UNQUOTE(JSON_SEARCH(sage_add_id, 'one', CAST(? AS JSON))))", jv))
+	return readSageArr(postId)
+}
+
+// SageSubPostUser 原子地把 userId 加入 sageSub 阵营，并从 sageAdd 阵营移除（互斥）。
+func SageSubPostUser(postId, userId int) (addArr, subArr []int) {
+	jv := jsonValue(userId)
+	// 1) 互斥：先从 add 阵营移除（若存在）
+	db.Model(&ForumPost{}).Where("id = ? AND JSON_CONTAINS(sage_add_id, CAST(? AS JSON))", postId, jv).
+		Update("sage_add_id", gorm.Expr("JSON_REMOVE(sage_add_id, JSON_UNQUOTE(JSON_SEARCH(sage_add_id, 'one', CAST(? AS JSON))))", jv))
+	// 2) 加入 sub 阵营（仅当不存在时）
+	db.Model(&ForumPost{}).Where("id = ? AND NOT JSON_CONTAINS(sage_sub_id, CAST(? AS JSON))", postId, jv).
+		Update("sage_sub_id", gorm.Expr("JSON_ARRAY_APPEND(sage_sub_id, '$', CAST(? AS JSON))", jv))
+	return readSageArr(postId)
+}
+
+// SageRemoveSubUser 原子地把 userId 从 sageSub 阵营移除（取消踩）。
+func SageRemoveSubUser(postId, userId int) (addArr, subArr []int) {
+	jv := jsonValue(userId)
+	db.Model(&ForumPost{}).Where("id = ? AND JSON_CONTAINS(sage_sub_id, CAST(? AS JSON))", postId, jv).
+		Update("sage_sub_id", gorm.Expr("JSON_REMOVE(sage_sub_id, JSON_UNQUOTE(JSON_SEARCH(sage_sub_id, 'one', CAST(? AS JSON))))", jv))
+	return readSageArr(postId)
+}
+
+// jsonValue 把 int 转成十进制字符串；SQL 侧用 CAST(? AS JSON) 转为 JSON 数字文档，
+// 保证 JSON_CONTAINS / JSON_ARRAY_APPEND 与数组元素（数字）类型一致。
+func jsonValue(v int) string {
+	return strconv.Itoa(v)
+}
+
+// json2intArr 把 JSON 数组字符串解析为 []int，解析失败返回空切片（稳健，不 panic）。
+func json2intArr(data string) []int {
+	res := make([]int, 0)
+	if data == "" {
+		return res
+	}
+	err := json.Unmarshal([]byte(data), &res)
+	if err != nil {
+		return make([]int, 0)
+	}
+	return res
+}
+
+// readSageArr 读取更新后的两阵营数组，供上层判断是否触发 sage 状态。
+func readSageArr(postId int) (addArr, subArr []int) {
+	var post ForumPost
+	db.Select("sage_add_id", "sage_sub_id", "plate_id").Where("id = ?", postId).Take(&post)
+	addArr = json2intArr(post.SageAddId)
+	subArr = json2intArr(post.SageSubId)
+	delSageIndexBuff(post.PlateId)
+	return
 }
 
 func UpdateForumPostStatus(post ForumPost, status int) {
@@ -233,6 +340,20 @@ func UpdateForumPostStatus(post ForumPost, status int) {
 	countKey := "fS:pIC:" + strconv.Itoa(post.PlateId)
 	postKey := "fS:pLR:" + strconv.Itoa(post.FollowId)
 	// setForumIndexBuff(post)
+	delKey(indexKey)
+	delKey(countKey)
+	delKey(postKey)
+}
+
+// UpdateForumPostStatusById 按帖子 id 更新状态，并自行补查 plate_id/follow_id 以清缓存。
+// 供原子 sage 投票后触发隐藏使用（此时调用方只有 postId）。
+func UpdateForumPostStatusById(postId, status int) {
+	db.Model(&ForumPost{}).Where("id = ?", postId).Update("status", status)
+	var post ForumPost
+	db.Select("plate_id", "follow_id").Where("id = ?", postId).Take(&post)
+	indexKey := "fS:pI:" + strconv.Itoa(post.PlateId)
+	countKey := "fS:pIC:" + strconv.Itoa(post.PlateId)
+	postKey := "fS:pLR:" + strconv.Itoa(post.FollowId)
 	delKey(indexKey)
 	delKey(countKey)
 	delKey(postKey)

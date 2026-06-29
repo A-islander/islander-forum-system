@@ -41,6 +41,13 @@ func Init() *http.ServeMux {
 	}.AddGroup("img").AddMiddleward(calcVisitTimeMiddleware)
 	httpHelper.SetMuxHandle(forumServer, imgHandleArr)
 
+	// user 路由组（合并自 user-system，原 :50001 端口的两个接口收敛到 :12345）。
+	userHandleArr := httpHelper.HandleArr{
+		{Url: "get", Handler: http.HandlerFunc(getUserByToken)},
+		{Url: "register", Handler: http.HandlerFunc(registerUserByIp)},
+	}.AddGroup("user").AddMiddleward(calcVisitTimeMiddleware)
+	httpHelper.SetMuxHandle(forumServer, userHandleArr)
+
 	fmt.Printf("listen to port %s", port)
 	http.ListenAndServe(port, forumServer)
 

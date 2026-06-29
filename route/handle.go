@@ -261,3 +261,33 @@ func postImgUpload(w http.ResponseWriter, r *http.Request) {
 	res := controller.PostImgUpload(r)
 	write(w, res)
 }
+
+// ── user（合并自 user-system，去 RPC 后在同一 :12345 端口暴露）──────
+
+// getUserByToken GET/POST：Header Authorization 带 token，返回当前用户信息。
+func getUserByToken(w http.ResponseWriter, r *http.Request) {
+	token, ok := r.Header["Authorization"]
+	if !ok {
+		writeError(w, http.StatusForbidden, errors.New("without Authorization").Error())
+		return
+	}
+	user, err := controller.GetUserByToken(token[0])
+	if err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	write(w, user)
+}
+
+// registerUserByIp GET/POST：按客户端 IP 注册/登录，返回 token。
+func registerUserByIp(w http.ResponseWriter, r *http.Request) {
+	ipAddr := remoteIp(r)
+	token, err := controller.RegisterByIpAddress(ipAddr)
+	if err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	write(w, struct {
+		Token string `json:"token"`
+	}{Token: token})
+}
