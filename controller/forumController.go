@@ -149,6 +149,24 @@ func GetForumPostCount(postId int) (int, error) {
 	return model.GetForumPostCount(postId)
 }
 
+// 获取某条回复在其主帖中的所在页号（1-based）与楼层号（1-based）。
+// 供前端从历史发帖点击回复时精确跳转到该楼层。
+func GetForumPostPage(postId, replyId, size int) (int, int, error) {
+	if size <= 0 {
+		size = 20
+	}
+	// 主帖本身（replyId==postId，followId=0）：第1页第1楼，无需 COUNT。
+	if replyId == postId {
+		return 1, 1, nil
+	}
+	floor, err := model.GetForumPostFloor(postId, replyId)
+	if err != nil {
+		return 0, 0, err
+	}
+	page := (floor-1)/size + 1
+	return page, floor, nil
+}
+
 // 获取串页
 func GetForumPostList(postId int, page int, size int) ([]ForumPost, int, error) {
 	if _, err := GetForumPost(postId); err != nil {

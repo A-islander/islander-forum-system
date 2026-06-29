@@ -73,6 +73,29 @@ func getForumPostCount(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// 查询某条回复在其主帖中的所在页号 + 楼层号（供历史发帖跳转定位）
+func getForumPostPage(w http.ResponseWriter, r *http.Request) {
+	query := get(r)
+	postId, _ := strconv.Atoi(query["postId"])
+	replyId, _ := strconv.Atoi(query["replyId"])
+	size, _ := strconv.Atoi(query["size"])
+	if size == 0 {
+		size = 20
+	}
+	page, floor, err := controller.GetForumPostPage(postId, replyId, size)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	var res struct {
+		Page  int `json:"page"`
+		Floor int `json:"floor"`
+	}
+	res.Page = page
+	res.Floor = floor
+	write(w, res)
+}
+
 func getForumPostIndex(w http.ResponseWriter, r *http.Request) {
 	query := get(r)
 	plateId, _ := strconv.Atoi(query["plateId"])

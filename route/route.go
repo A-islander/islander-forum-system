@@ -23,6 +23,7 @@ func Init() *http.ServeMux {
 		{Url: "index", Handler: http.HandlerFunc(getForumPostIndex)},
 		{Url: "list", Handler: http.HandlerFunc(getForumPostList)},
 		{Url: "listCount", Handler: http.HandlerFunc(getForumPostCount)},
+		{Url: "postPage", Handler: http.HandlerFunc(getForumPostPage)},
 		{Url: "indexLast", Handler: http.HandlerFunc(getForumIndexLastTime)},
 		{Url: "userList", Handler: http.HandlerFunc(getUserForumPostList)},
 		{Url: "post", Handler: http.HandlerFunc(postForumPost)},

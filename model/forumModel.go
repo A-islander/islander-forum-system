@@ -146,6 +146,24 @@ func GetForumPostCount(postId int) (int, error) {
 	return int(count), err
 }
 
+// GetForumPostFloor 计算 replyId 这条回复在其所属主帖 postId 的楼层号（1-based）。
+// 查询口径与 GetForumPostList 完全一致：(follow_id=postId AND status=0) OR id=postId，time asc。
+// 用 time <= 目标回复的 time 计数（含主帖本身，主帖 time 最小=楼层1，与详情页第1页含主帖一致）。
+// 先 Take 校验目标回复属于该帖且 status=0（被 sage/自删/不属于 → record not found 错误，触发前端降级）。
+// 用 <= 而非 <：同秒并列回复全计入，目标回复必落所在页内（scrollIntoView 精确到 DOM id 即可）。
+func GetForumPostFloor(postId, replyId int) (int, error) {
+	var reply ForumPost
+	err := db.Where("id = ? and follow_id = ? and status = 0", replyId, postId).Take(&reply).Error
+	if err != nil {
+		return 0, err
+	}
+	var floor int64
+	db.Model(&ForumPost{}).
+		Where("((follow_id = ? and status = 0) or id = ?) and time <= ?", postId, postId, reply.Time).
+		Count(&floor)
+	return int(floor), nil
+}
+
 // TODO 获取单个帖子
 func GetForumPostByPostId(postId int) (ForumPost, error) {
 	var res ForumPost
