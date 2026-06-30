@@ -136,7 +136,7 @@ func GetForumPostList(postId int, page int, size int) ([]ForumPost, int) {
 	first := page * size
 	var res []ForumPost
 	var count int64
-	db.Limit(size).Offset(first).Where("(follow_id = ? and status = 0) or id = ?", postId, postId).Order("time asc").Find(&res).Limit(-1).Offset(-1).Count(&count)
+	db.Limit(size).Offset(first).Where("(follow_id = ? and status = 0) or id = ?", postId, postId).Order("time asc, id asc").Find(&res).Limit(-1).Offset(-1).Count(&count)
 	return res, int(count)
 }
 
@@ -147,10 +147,13 @@ func GetForumPostCount(postId int) (int, error) {
 }
 
 // GetForumPostFloor 计算 replyId 这条回复在其所属主帖 postId 的楼层号（1-based）。
-// 查询口径与 GetForumPostList 完全一致：(follow_id=postId AND status=0) OR id=postId，time asc。
-// 用 time <= 目标回复的 time 计数（含主帖本身，主帖 time 最小=楼层1，与详情页第1页含主帖一致）。
+// 口径必须与 GetForumPostList 逐字一致：(follow_id=postId AND status=0) OR id=postId，按 (time asc, id asc) 排序。
+// floor = 排在它前面的条数 + 1。用 (time,id) 二元组比较，消除同秒并列时的顺序歧义：
+//
+//	排在前 = time 更早，或 time 相同但 id 更小。
+//
+// 这样算出的页号与 list 接口实际分页位置完全一致。
 // 先 Take 校验目标回复属于该帖且 status=0（被 sage/自删/不属于 → record not found 错误，触发前端降级）。
-// 用 <= 而非 <：同秒并列回复全计入，目标回复必落所在页内（scrollIntoView 精确到 DOM id 即可）。
 func GetForumPostFloor(postId, replyId int) (int, error) {
 	var reply ForumPost
 	err := db.Where("id = ? and follow_id = ? and status = 0", replyId, postId).Take(&reply).Error
@@ -159,9 +162,10 @@ func GetForumPostFloor(postId, replyId int) (int, error) {
 	}
 	var floor int64
 	db.Model(&ForumPost{}).
-		Where("((follow_id = ? and status = 0) or id = ?) and time <= ?", postId, postId, reply.Time).
+		Where("((follow_id = ? and status = 0) or id = ?) and (time < ? or (time = ? and id < ?))",
+			postId, postId, reply.Time, reply.Time, reply.Id).
 		Count(&floor)
-	return int(floor), nil
+	return int(floor) + 1, nil
 }
 
 // TODO 获取单个帖子
