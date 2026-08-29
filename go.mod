@@ -5,6 +5,7 @@ go 1.16
 require (
 	github.com/aliyun/aliyun-oss-go-sdk v2.2.5+incompatible
 	github.com/go-redis/redis/v8 v8.11.4
+	github.com/gorilla/websocket v1.5.3
 	github.com/hedykan/httpHelper v0.0.0-20221118165643-87f2160aedea
 	github.com/spf13/viper v1.13.0
 	github.com/thinkeridea/go-extend v1.3.2

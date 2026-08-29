@@ -49,6 +49,8 @@ func Init() *http.ServeMux {
 	}.AddGroup("user").AddMiddleward(calcVisitTimeMiddleware)
 	httpHelper.SetMuxHandle(forumServer, userHandleArr)
 
+	registerBarRoutes(forumServer)
+
 	fmt.Printf("listen to port %s", port)
 	http.ListenAndServe(port, forumServer)
 
