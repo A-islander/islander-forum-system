@@ -155,6 +155,6 @@ func (s *Service) traceInstance(ctx context.Context, instanceId uint64, seen map
 func (s *Service) ExpireStock(ctx context.Context) (int64, error) {
 	now := s.now().Unix()
 	result := s.db.WithContext(ctx).Model(&model.BarIngredientInstance{}).
-		Where("status = 0 AND expire_at < ?", now).Updates(map[string]interface{}{"status": 2, "updated_at": now})
+		Where("status = 0 AND expire_at <= ?", now).Updates(map[string]interface{}{"status": 2, "updated_at": now})
 	return result.RowsAffected, result.Error
 }

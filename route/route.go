@@ -1,9 +1,11 @@
 package route
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
+	"github.com/forum_server/controller"
 	"github.com/hedykan/httpHelper"
 )
 
@@ -50,6 +52,7 @@ func Init() *http.ServeMux {
 	httpHelper.SetMuxHandle(forumServer, userHandleArr)
 
 	registerBarRoutes(forumServer)
+	controller.StartBarStockMaintenance(context.Background())
 
 	fmt.Printf("listen to port %s", port)
 	http.ListenAndServe(port, forumServer)

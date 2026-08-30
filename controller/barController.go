@@ -3,6 +3,9 @@ package controller
 import (
 	"context"
 	"log"
+	"os"
+	"strings"
+	"time"
 
 	barservice "github.com/forum_server/service/bar"
 )
@@ -51,4 +54,22 @@ func GetBarStock(ctx context.Context) ([]barservice.StockItem, error) {
 
 func RestockBar(ctx context.Context, request barservice.RestockRequest) (interface{}, error) {
 	return barService.Restock(ctx, request)
+}
+
+func StartBarStockMaintenance(ctx context.Context) {
+	enabled := strings.ToLower(strings.TrimSpace(os.Getenv("BAR_STOCK_MAINTENANCE_ENABLED")))
+	if enabled == "0" || enabled == "false" || enabled == "off" {
+		log.Printf("bar stock maintenance disabled")
+		return
+	}
+	interval := time.Hour
+	if raw := strings.TrimSpace(os.Getenv("BAR_STOCK_MAINTENANCE_INTERVAL")); raw != "" {
+		parsed, err := time.ParseDuration(raw)
+		if err != nil || parsed <= 0 {
+			log.Printf("invalid BAR_STOCK_MAINTENANCE_INTERVAL %q; using %s", raw, interval)
+		} else {
+			interval = parsed
+		}
+	}
+	go barService.RunMaintenanceLoop(ctx, interval)
 }

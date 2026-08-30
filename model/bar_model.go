@@ -116,6 +116,20 @@ type BarProcessLog struct {
 
 func (BarProcessLog) TableName() string { return "bar_process_log" }
 
+type BarStockPolicy struct {
+	TypeId               uint64   `gorm:"column:type_id;type:bigint unsigned;primaryKey;not null" json:"type_id"`
+	MinQty               float64  `gorm:"column:min_qty;type:decimal(10,2);not null" json:"min_qty"`
+	MaxQty               float64  `gorm:"column:max_qty;type:decimal(10,2);not null" json:"max_qty"`
+	ReplenishMode        string   `gorm:"column:replenish_mode;type:varchar(16);not null;default:restock" json:"replenish_mode"`
+	ProcessId            *uint64  `gorm:"column:process_id;type:bigint unsigned;default:null;index:idx_process" json:"process_id"`
+	RetireFreshnessBelow *float64 `gorm:"column:retire_freshness_below;type:decimal(5,2);default:null" json:"retire_freshness_below"`
+	Enabled              uint8    `gorm:"column:enabled;type:tinyint unsigned;not null;default:1;index:idx_enabled" json:"enabled"`
+	CreatedAt            int64    `gorm:"column:created_at;type:bigint;not null" json:"created_at"`
+	UpdatedAt            int64    `gorm:"column:updated_at;type:bigint;not null" json:"updated_at"`
+}
+
+func (BarStockPolicy) TableName() string { return "bar_stock_policy" }
+
 type BarRecipe struct {
 	Id         uint64 `gorm:"column:id;primaryKey;autoIncrement:true;not null" json:"id"`
 	Name       string `gorm:"column:name;type:varchar(64);not null" json:"name"`
@@ -170,6 +184,7 @@ func BarModels() []interface{} {
 		&BarRestockLog{},
 		&BarProcess{},
 		&BarProcessLog{},
+		&BarStockPolicy{},
 		&BarRecipe{},
 		&BarRecipeItem{},
 		&BarDrink{},

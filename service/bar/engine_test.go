@@ -132,15 +132,16 @@ func TestMakeDrinkAgainstLocalDatabase(t *testing.T) {
 	if len(result.Trace) != 4 || len(result.Steps) != 4 {
 		t.Fatalf("expected four ingredients, trace=%d steps=%d", len(result.Trace), len(result.Steps))
 	}
-	if got := result.Flavor.Leaves["601"]; got != 3 {
-		t.Fatalf("pineapple flavor = %v, want 3", got)
+	pineappleFlavor := result.Flavor.Leaves["601"]
+	if pineappleFlavor <= 0 || pineappleFlavor > 3 {
+		t.Fatalf("pineapple flavor = %v, want a decayed value in (0,3]", pineappleFlavor)
 	}
 	if len(result.Drink.FlavorSnapshot.Leaves) == 0 || len(result.Drink.FlavorSnapshot.Rolled) == 0 {
 		t.Fatalf("public flavor arrays are empty: %+v", result.Drink.FlavorSnapshot)
 	}
 	foundPineapple := false
 	for _, flavor := range result.Drink.FlavorSnapshot.Leaves {
-		if flavor.Id == 601 && flavor.Name == "菠萝香" && flavor.Value == 3 {
+		if flavor.Id == 601 && flavor.Name == "菠萝香" && flavor.Value == pineappleFlavor {
 			foundPineapple = true
 		}
 	}

@@ -41,8 +41,8 @@ func parseRequirement(raw json.RawMessage) map[string][]float64 {
 	return result
 }
 
-func matchesRequirement(instance model.BarIngredientInstance, requirement map[string][]float64) bool {
-	attrs := numberMap(instance.Attrs)
+func matchesRequirement(instance model.BarIngredientInstance, ingredientType model.BarIngredientType, requirement map[string][]float64, now int64) bool {
+	attrs := effectiveAttributes(instance, ingredientType, now)
 	for key, bounds := range requirement {
 		if len(bounds) != 2 {
 			return false
@@ -93,7 +93,7 @@ func (s *Service) allocateItem(tx *gorm.DB, item model.BarRecipeItem, overrideId
 		if index < 0 {
 			return allocatedInput{}, nil, fmt.Errorf("override instance %d is unavailable for type %d", overrideId, item.TypeId)
 		}
-		if !matchesRequirement(candidates[index], parseRequirement(item.Requirement)) {
+		if !matchesRequirement(candidates[index], ingredientType, parseRequirement(item.Requirement), now) {
 			return allocatedInput{}, nil, fmt.Errorf("override instance %d does not satisfy quality requirements", overrideId)
 		}
 		chosen := candidates[index]
@@ -104,14 +104,14 @@ func (s *Service) allocateItem(tx *gorm.DB, item model.BarRecipeItem, overrideId
 	input := allocatedInput{item: item, typeInfo: ingredientType}
 	requirement := parseRequirement(item.Requirement)
 	for _, candidate := range candidates {
-		if !matchesRequirement(candidate, requirement) {
+		if !matchesRequirement(candidate, ingredientType, requirement, now) {
 			continue
 		}
 		take := math.Min(candidate.QtyRemain, need)
 		if take <= 0 {
 			continue
 		}
-		attrs := numberMap(candidate.Attrs)
+		attrs := effectiveAttributes(candidate, ingredientType, now)
 		portion := PortionSnapshot{InstanceId: candidate.Id, Code: candidate.Code, Qty: round(take, 2)}
 		if freshness, ok := attrs["freshness"]; ok {
 			value := freshness
@@ -386,7 +386,7 @@ func (s *Service) Menu(ctx context.Context) ([]MenuRecipe, error) {
 			}
 			available := 0.0
 			for _, candidate := range candidates {
-				if matchesRequirement(candidate, parseRequirement(item.Requirement)) {
+				if matchesRequirement(candidate, ingredientType, parseRequirement(item.Requirement), now) {
 					available += candidate.QtyRemain
 				}
 			}

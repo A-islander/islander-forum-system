@@ -29,6 +29,21 @@ func numberMap(raw json.RawMessage) map[string]float64 {
 	return result
 }
 
+func effectiveAttributes(instance model.BarIngredientInstance, ingredientType model.BarIngredientType, now int64) map[string]float64 {
+	attrs := numberMap(instance.Attrs)
+	freshness, ok := attrs["freshness"]
+	if !ok {
+		return attrs
+	}
+	elapsed := float64(now-instance.ProducedAt) / 86400
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	freshness -= elapsed * ingredientType.FreshnessDecayPerDay
+	attrs["freshness"] = math.Max(0, math.Min(100, freshness))
+	return attrs
+}
+
 func round(value float64, digits int) float64 {
 	pow := math.Pow10(digits)
 	return math.Round(value*pow) / pow
@@ -57,11 +72,10 @@ func computeFlavor(inputs []allocatedInput, mappings []model.BarIngredientFlavor
 			if mapping.Sensitivity != nil {
 				sensitivity = *mapping.Sensitivity
 			}
-			for index, portion := range input.portions {
+			for _, portion := range input.portions {
 				freshness := 100.0
-				attrs := numberMap(input.instances[index].Attrs)
-				if value, ok := attrs["freshness"]; ok {
-					freshness = value
+				if portion.Freshness != nil {
+					freshness = *portion.Freshness
 				}
 				coefficient := 1 - sensitivity + sensitivity*freshness/100
 				if sensitivity < 0 {
@@ -76,9 +90,9 @@ func computeFlavor(inputs []allocatedInput, mappings []model.BarIngredientFlavor
 	}
 	if stale {
 		for _, input := range inputs {
-			for _, instance := range input.instances {
-				if freshness, ok := numberMap(instance.Attrs)["freshness"]; ok && freshness < 30 {
-					leaves[1201] += .5 * (30 - freshness)
+			for _, portion := range input.portions {
+				if portion.Freshness != nil && *portion.Freshness < 30 {
+					leaves[1201] += .5 * (30 - *portion.Freshness)
 				}
 			}
 		}

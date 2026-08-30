@@ -60,19 +60,23 @@ func TestBarModelSchemaMatchesDDL(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ddl, err := os.ReadFile("../migrations/002_bar_core.sql")
+	coreDDL, err := os.ReadFile("../migrations/002_bar_core.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	maintenanceDDL, err := os.ReadFile("../migrations/003_bar_stock_maintenance.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
 	ddlDB := openBarSchemaDatabase(t, user, password, address, ddlDatabase)
-	if err := ddlDB.Exec(string(ddl)).Error; err != nil {
+	if err := ddlDB.Exec(string(coreDDL) + "\n" + string(maintenanceDDL)).Error; err != nil {
 		t.Fatal(err)
 	}
 
 	autoColumns, autoIndexes := readBarSchema(t, root, autoDatabase)
 	ddlColumns, ddlIndexes := readBarSchema(t, root, ddlDatabase)
-	if len(tableNames(autoColumns)) != 10 {
-		t.Fatalf("AutoMigrate created %d bar tables, want 10", len(tableNames(autoColumns)))
+	if len(tableNames(autoColumns)) != 11 {
+		t.Fatalf("AutoMigrate created %d bar tables, want 11", len(tableNames(autoColumns)))
 	}
 	if !reflect.DeepEqual(autoColumns, ddlColumns) {
 		t.Fatalf("AutoMigrate columns differ from DDL: %s", firstSchemaDifference(autoColumns, ddlColumns))
