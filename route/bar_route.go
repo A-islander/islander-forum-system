@@ -19,10 +19,23 @@ import (
 
 func registerBarRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/bar/menu", methodMiddleware(http.HandlerFunc(barMenuHandler)))
+	mux.Handle("/api/bar/ingredients", methodMiddleware(http.HandlerFunc(barIngredientsHandler)))
 	mux.Handle("/api/bar/order", methodMiddleware(http.HandlerFunc(barOrderHandler)))
 	mux.Handle("/api/bar/drink/", methodMiddleware(http.HandlerFunc(barDrinkHandler)))
 	mux.Handle("/api/bar/trace/", methodMiddleware(http.HandlerFunc(barTraceHandler)))
 	mux.HandleFunc("/ws/bar/order", barWebSocketHandler)
+}
+
+func barIngredientsHandler(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	items, err := controller.GetBarIngredients(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	write(w, map[string]interface{}{"ingredients": items, "max_extras_per_drink": 2})
 }
 
 func requireMethod(w http.ResponseWriter, r *http.Request, method string) bool {
@@ -315,7 +328,11 @@ func wsFailurePayload(err error) map[string]interface{} {
 }
 
 func ingredientPerformanceLine(step barservice.PerformanceStep, trace []barservice.TracePortion) string {
-	line := fmt.Sprintf("先取%s%g%s。", step.TypeName, step.Qty, step.Unit)
+	verb := "先取"
+	if step.Action == "加料" {
+		verb = "再加入"
+	}
+	line := fmt.Sprintf("%s%s%g%s。", verb, step.TypeName, step.Qty, step.Unit)
 	for _, portion := range trace {
 		if portion.TypeId != step.TypeId || portion.SourceNote == "" || portion.SourceNote == "海浪之歌进货" {
 			continue

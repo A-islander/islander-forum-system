@@ -32,6 +32,7 @@ type DescribeIngredient struct {
 	Name      string   `json:"name"`
 	Qty       float64  `json:"qty"`
 	Unit      string   `json:"unit"`
+	Role      string   `json:"role,omitempty"`
 	Freshness *float64 `json:"-"`
 	Condition string   `json:"condition,omitempty"`
 }
@@ -154,7 +155,11 @@ func (d *IslandGirlDescriber) DescribePerformanceCue(ctx context.Context, input 
 			}
 		}
 		data["trace"] = trace
-		instruction = fmt.Sprintf("只输出取用%s时说的一句话，12到35个汉字；必须自然说出原料名%s，以俏皮的现场互动为主，嘴硬只作点缀。不要使用哼、别催、拿稳这些高频套话。若数据提供来源可以提及，但绝不编造来源、数量或状态。", step.TypeName, step.TypeName)
+		action := "取用"
+		if step.Action == "加料" {
+			action = "按客人的选择额外加入"
+		}
+		instruction = fmt.Sprintf("只输出%s%s时说的一句话，12到35个汉字；必须自然说出原料名%s，以俏皮的现场互动为主，嘴硬只作点缀。不要使用哼、别催、拿稳这些高频套话。若数据提供来源可以提及，但绝不编造来源、数量或状态。", action, step.TypeName, step.TypeName)
 	case "technique":
 		instruction = fmt.Sprintf("只输出即将开始%s手法前说的一句话，12到35个汉字；必须包含技法名%s，使用将要开始的语气，不能说已经摇好、做完或完成。以俏皮的现场互动为主，不要使用哼、别催、拿稳这些高频套话，不编造其他技法。", input.Technique, input.Technique)
 	default:

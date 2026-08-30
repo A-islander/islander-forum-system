@@ -68,8 +68,12 @@ func TestBarModelSchemaMatchesDDL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	extraDDL, err := os.ReadFile("../migrations/004_bar_extra_ingredients.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
 	ddlDB := openBarSchemaDatabase(t, user, password, address, ddlDatabase)
-	if err := ddlDB.Exec(string(coreDDL) + "\n" + string(maintenanceDDL)).Error; err != nil {
+	if err := ddlDB.Exec(string(coreDDL) + "\n" + string(maintenanceDDL) + "\n" + string(extraDDL)).Error; err != nil {
 		t.Fatal(err)
 	}
 

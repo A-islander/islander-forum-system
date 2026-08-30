@@ -14,6 +14,7 @@ import (
 var mouthfeelKeys = []string{"body", "crisp", "creamy", "effervescent", "heat", "astringent"}
 
 type allocatedInput struct {
+	role      string
 	item      model.BarRecipeItem
 	typeInfo  model.BarIngredientType
 	instances []model.BarIngredientInstance

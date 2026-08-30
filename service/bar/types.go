@@ -13,7 +13,13 @@ type OrderRequest struct {
 	RecipeId  uint64            `json:"recipe_id"`
 	OrderedBy uint64            `json:"ordered_by"`
 	Overrides map[uint64]uint64 `json:"overrides"`
+	Extras    []ExtraIngredient `json:"extras"`
 	Message   string            `json:"message"`
+}
+
+type ExtraIngredient struct {
+	TypeId   uint64  `json:"type_id"`
+	Quantity float64 `json:"quantity"`
 }
 
 type PortionSnapshot struct {
@@ -25,6 +31,7 @@ type PortionSnapshot struct {
 
 type InputSnapshot struct {
 	Kind     string            `json:"kind"`
+	Role     string            `json:"role,omitempty"`
 	TypeId   uint64            `json:"type_id,omitempty"`
 	Qty      float64           `json:"qty,omitempty"`
 	Portions []PortionSnapshot `json:"portions,omitempty"`
@@ -63,6 +70,7 @@ type MouthfeelSnapshot struct {
 }
 
 type TracePortion struct {
+	Role       string  `json:"role,omitempty"`
 	TypeId     uint64  `json:"type_id"`
 	TypeName   string  `json:"type"`
 	Unit       string  `json:"unit"`
@@ -151,6 +159,20 @@ type StockItem struct {
 	Unit             string  `json:"unit"`
 	QtyRemain        float64 `json:"qty_remain"`
 	EarliestExpireAt int64   `json:"earliest_expire_at"`
+}
+
+type IngredientCatalogItem struct {
+	TypeId         uint64  `json:"type_id"`
+	Code           string  `json:"code"`
+	Name           string  `json:"name"`
+	Category       string  `json:"category"`
+	Unit           string  `json:"unit"`
+	Codex          string  `json:"codex"`
+	ExtraEnabled   bool    `json:"extra_enabled"`
+	SuggestedQty   float64 `json:"suggested_qty"`
+	MaxQtyPerDrink float64 `json:"max_qty_per_drink"`
+	AvailableQty   float64 `json:"available_qty"`
+	Available      bool    `json:"available"`
 }
 
 type RestockRequest struct {

@@ -29,6 +29,9 @@ type BarIngredientType struct {
 	Category             string          `gorm:"column:category;type:varchar(32);not null;default:''" json:"category"`
 	Mixable              uint8           `gorm:"column:mixable;type:tinyint unsigned;not null;default:1" json:"mixable"`
 	Unit                 string          `gorm:"column:unit;type:varchar(8);not null;default:ml" json:"unit"`
+	ExtraEnabled         uint8           `gorm:"column:extra_enabled;type:tinyint unsigned;not null;default:0" json:"extra_enabled"`
+	ExtraDefaultQty      float64         `gorm:"column:extra_default_qty;type:decimal(10,2);not null;default:0.00" json:"extra_default_qty"`
+	ExtraMaxQty          float64         `gorm:"column:extra_max_qty;type:decimal(10,2);not null;default:0.00" json:"extra_max_qty"`
 	DefaultBatchQty      float64         `gorm:"column:default_batch_qty;type:decimal(10,2);not null;default:1.00" json:"default_batch_qty"`
 	ShelfLifeDays        uint            `gorm:"column:shelf_life_days;type:int unsigned;not null;default:30" json:"shelf_life_days"`
 	FreshnessDecayPerDay float64         `gorm:"column:freshness_decay_per_day;type:decimal(5,2);not null;default:0.00" json:"freshness_decay_per_day"`

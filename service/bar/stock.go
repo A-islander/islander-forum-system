@@ -39,6 +39,44 @@ func (s *Service) Stock(ctx context.Context) ([]StockItem, error) {
 	return result, nil
 }
 
+// Ingredients returns public type metadata and aggregate usable stock without
+// exposing individual batches or maintenance-only stock details.
+func (s *Service) Ingredients(ctx context.Context) ([]IngredientCatalogItem, error) {
+	var types []model.BarIngredientType
+	if err := s.db.WithContext(ctx).Where("status = 0").Order("id ASC").Find(&types).Error; err != nil {
+		return nil, err
+	}
+	type stockAggregate struct {
+		TypeId uint64
+		Qty    float64
+	}
+	var aggregates []stockAggregate
+	now := s.now().Unix()
+	if err := s.db.WithContext(ctx).Model(&model.BarIngredientInstance{}).
+		Select("type_id, COALESCE(SUM(qty_remain),0) AS qty").
+		Where("status = 0 AND qty_remain > 0 AND expire_at > ?", now).
+		Group("type_id").Scan(&aggregates).Error; err != nil {
+		return nil, err
+	}
+	stock := make(map[uint64]float64, len(aggregates))
+	for _, aggregate := range aggregates {
+		stock[aggregate.TypeId] = aggregate.Qty
+	}
+	result := make([]IngredientCatalogItem, 0, len(types))
+	for _, ingredientType := range types {
+		availableQty := round(stock[ingredientType.Id], 2)
+		enabled := ingredientType.Mixable == 1 && ingredientType.ExtraEnabled == 1 && ingredientType.ExtraMaxQty > 0
+		result = append(result, IngredientCatalogItem{
+			TypeId: ingredientType.Id, Code: ingredientType.Code, Name: ingredientType.Name,
+			Category: ingredientType.Category, Unit: ingredientType.Unit, Codex: ingredientType.Codex,
+			ExtraEnabled: enabled, SuggestedQty: ingredientType.ExtraDefaultQty,
+			MaxQtyPerDrink: ingredientType.ExtraMaxQty, AvailableQty: availableQty,
+			Available: enabled && availableQty > 0,
+		})
+	}
+	return result, nil
+}
+
 func (s *Service) Restock(ctx context.Context, request RestockRequest) (model.BarIngredientInstance, error) {
 	if request.TypeId == 0 || request.Quantity <= 0 {
 		return model.BarIngredientInstance{}, errors.New("type_id and positive quantity are required")

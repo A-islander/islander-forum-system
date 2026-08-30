@@ -24,6 +24,10 @@ func GetBarMenu(ctx context.Context) ([]barservice.MenuRecipe, error) {
 	return barService.Menu(ctx)
 }
 
+func GetBarIngredients(ctx context.Context) ([]barservice.IngredientCatalogItem, error) {
+	return barService.Ingredients(ctx)
+}
+
 func MakeBarDrink(ctx context.Context, request barservice.OrderRequest) (barservice.OrderResult, error) {
 	return barService.MakeDrinkAsync(ctx, request)
 }

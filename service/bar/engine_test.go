@@ -27,6 +27,178 @@ func TestRuleDescriber(t *testing.T) {
 	}
 }
 
+func TestValidateExtras(t *testing.T) {
+	tests := []struct {
+		name   string
+		extras []ExtraIngredient
+	}{
+		{name: "more than two", extras: []ExtraIngredient{{TypeId: 6, Quantity: 1}, {TypeId: 7, Quantity: 1}, {TypeId: 8, Quantity: 1}}},
+		{name: "missing type", extras: []ExtraIngredient{{Quantity: 1}}},
+		{name: "non-positive", extras: []ExtraIngredient{{TypeId: 6, Quantity: 0}}},
+		{name: "too precise", extras: []ExtraIngredient{{TypeId: 6, Quantity: 1.001}}},
+		{name: "duplicate", extras: []ExtraIngredient{{TypeId: 6, Quantity: 1}, {TypeId: 6, Quantity: 2}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateExtras(test.extras); err == nil {
+				t.Fatalf("validateExtras(%+v) succeeded", test.extras)
+			}
+		})
+	}
+	if err := validateExtras([]ExtraIngredient{{TypeId: 6, Quantity: 1.25}, {TypeId: 7, Quantity: 2}}); err != nil {
+		t.Fatalf("valid extras failed: %v", err)
+	}
+}
+
+func TestIngredientCatalogAndExtraDrink(t *testing.T) {
+	tx := model.BarDatabase().Begin()
+	if tx.Error != nil {
+		t.Fatal(tx.Error)
+	}
+	defer tx.Rollback()
+	service := NewService(tx, nil)
+
+	catalog, err := service.Ingredients(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog) != 20 {
+		t.Fatalf("catalog length=%d, want 20", len(catalog))
+	}
+	var salt IngredientCatalogItem
+	for _, item := range catalog {
+		if item.TypeId == 15 {
+			salt = item
+		}
+	}
+	if !salt.ExtraEnabled || salt.SuggestedQty != 1 || salt.MaxQtyPerDrink != 2 || salt.Unit != "g" {
+		t.Fatalf("unexpected salt catalog item: %+v", salt)
+	}
+
+	var before float64
+	if err := tx.Model(&model.BarIngredientInstance{}).Select("COALESCE(SUM(qty_remain),0)").Where("type_id = 15 AND status = 0").Scan(&before).Error; err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.MakeDrink(context.Background(), OrderRequest{
+		RecipeId: 2, OrderedBy: 8848, Extras: []ExtraIngredient{{TypeId: 15, Quantity: 1}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var after float64
+	if err := tx.Model(&model.BarIngredientInstance{}).Select("COALESCE(SUM(qty_remain),0)").Where("type_id = 15 AND status = 0").Scan(&after).Error; err != nil {
+		t.Fatal(err)
+	}
+	if before-after != 1 {
+		t.Fatalf("salt deducted=%v, want 1", before-after)
+	}
+	last := result.Drink.InputsSnapshot[len(result.Drink.InputsSnapshot)-2]
+	if last.Role != "extra" || last.TypeId != 15 || last.Qty != 1 {
+		t.Fatalf("extra snapshot missing: %+v", result.Drink.InputsSnapshot)
+	}
+	if result.Steps[len(result.Steps)-1].Action != "加料" || result.Trace[len(result.Trace)-1].Role != "extra" {
+		t.Fatalf("extra performance/trace missing: steps=%+v trace=%+v", result.Steps, result.Trace)
+	}
+	if result.DescribeInput.Ingredients[len(result.DescribeInput.Ingredients)-1].Role != "extra" {
+		t.Fatalf("LLM input does not identify the extra: %+v", result.DescribeInput.Ingredients)
+	}
+}
+
+func TestExtraIngredientPolicyAndRollback(t *testing.T) {
+	tests := []struct {
+		name  string
+		extra ExtraIngredient
+	}{
+		{name: "base spirit is disabled", extra: ExtraIngredient{TypeId: 1, Quantity: 5}},
+		{name: "quantity over limit", extra: ExtraIngredient{TypeId: 15, Quantity: 3}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tx := model.BarDatabase().Begin()
+			if tx.Error != nil {
+				t.Fatal(tx.Error)
+			}
+			defer tx.Rollback()
+			var before float64
+			if err := tx.Model(&model.BarIngredientInstance{}).Select("COALESCE(SUM(qty_remain),0)").Where("type_id = 1 AND status = 0").Scan(&before).Error; err != nil {
+				t.Fatal(err)
+			}
+			_, err := NewService(tx, nil).MakeDrink(context.Background(), OrderRequest{RecipeId: 2, OrderedBy: 8848, Extras: []ExtraIngredient{test.extra}})
+			if err == nil {
+				t.Fatal("order unexpectedly succeeded")
+			}
+			var after float64
+			if err := tx.Model(&model.BarIngredientInstance{}).Select("COALESCE(SUM(qty_remain),0)").Where("type_id = 1 AND status = 0").Scan(&after).Error; err != nil {
+				t.Fatal(err)
+			}
+			if after != before {
+				t.Fatalf("base stock changed on invalid extra: before=%v after=%v", before, after)
+			}
+		})
+	}
+}
+
+func TestMissingExtraIngredientRollsBackRecipeStock(t *testing.T) {
+	tx := model.BarDatabase().Begin()
+	if tx.Error != nil {
+		t.Fatal(tx.Error)
+	}
+	defer tx.Rollback()
+	if err := tx.Model(&model.BarIngredientInstance{}).Where("type_id = 14").Updates(map[string]interface{}{"qty_remain": 0, "status": 1}).Error; err != nil {
+		t.Fatal(err)
+	}
+	var before float64
+	if err := tx.Model(&model.BarIngredientInstance{}).Select("COALESCE(SUM(qty_remain),0)").Where("type_id = 1 AND status = 0").Scan(&before).Error; err != nil {
+		t.Fatal(err)
+	}
+	_, err := NewService(tx, nil).MakeDrink(context.Background(), OrderRequest{
+		RecipeId: 2, OrderedBy: 8848, Extras: []ExtraIngredient{{TypeId: 14, Quantity: 1}},
+	})
+	var missing *MissingError
+	if !errors.As(err, &missing) || len(missing.Details) != 1 || missing.Details[0].TypeId != 14 {
+		t.Fatalf("expected missing mint detail, got %v", err)
+	}
+	var after float64
+	if err := tx.Model(&model.BarIngredientInstance{}).Select("COALESCE(SUM(qty_remain),0)").Where("type_id = 1 AND status = 0").Scan(&after).Error; err != nil {
+		t.Fatal(err)
+	}
+	if after != before {
+		t.Fatalf("recipe stock changed when extra was missing: before=%v after=%v", before, after)
+	}
+}
+
+func TestExtraOfRecipeTypeUsesRemainingStock(t *testing.T) {
+	tx := model.BarDatabase().Begin()
+	if tx.Error != nil {
+		t.Fatal(tx.Error)
+	}
+	defer tx.Rollback()
+	if err := tx.Model(&model.BarIngredientInstance{}).Where("type_id = 6").Updates(map[string]interface{}{"qty_remain": 0, "status": 1}).Error; err != nil {
+		t.Fatal(err)
+	}
+	var batch model.BarIngredientInstance
+	if err := tx.Unscoped().Where("type_id = 6").First(&batch).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Model(&batch).Updates(map[string]interface{}{"qty_remain": 20, "status": 0}).Error; err != nil {
+		t.Fatal(err)
+	}
+	_, err := NewService(tx, nil).MakeDrink(context.Background(), OrderRequest{
+		RecipeId: 2, OrderedBy: 8848, Extras: []ExtraIngredient{{TypeId: 6, Quantity: 10}},
+	})
+	var missing *MissingError
+	if !errors.As(err, &missing) || len(missing.Details) != 1 || missing.Details[0].TypeId != 6 || missing.Details[0].Shortage != 5 {
+		t.Fatalf("expected five units of blue syrup missing, got %v", err)
+	}
+	var after float64
+	if err := tx.Model(&model.BarIngredientInstance{}).Select("COALESCE(SUM(qty_remain),0)").Where("type_id = 6 AND status = 0").Scan(&after).Error; err != nil {
+		t.Fatal(err)
+	}
+	if after != 20 {
+		t.Fatalf("same-type missing order did not roll back: qty=%v", after)
+	}
+}
+
 type blockingDescriber struct {
 	started chan struct{}
 	release chan struct{}

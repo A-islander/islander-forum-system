@@ -190,6 +190,27 @@ func TestBarHTTPOrderRequiresAuthorization(t *testing.T) {
 	}
 }
 
+func TestBarIngredientsArePublic(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/api/bar/ingredients", nil)
+	response := httptest.NewRecorder()
+	barIngredientsHandler(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		Data struct {
+			MaxExtras   int                                `json:"max_extras_per_drink"`
+			Ingredients []barservice.IngredientCatalogItem `json:"ingredients"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Data.MaxExtras != 2 || len(payload.Data.Ingredients) == 0 {
+		t.Fatalf("unexpected catalog response: %+v", payload)
+	}
+}
+
 func TestBarWebSocketRejectsInvalidToken(t *testing.T) {
 	originalResolver := resolveBarUserId
 	resolveBarUserId = func(string) (uint64, error) { return 0, errors.New("invalid token") }

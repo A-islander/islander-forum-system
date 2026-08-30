@@ -148,13 +148,59 @@ func deductStock(tx *gorm.DB, instanceId uint64, quantity float64, now int64) er
 	return nil
 }
 
+func deductInput(tx *gorm.DB, input allocatedInput, now int64) error {
+	for _, portion := range input.portions {
+		if err := deductStock(tx, portion.InstanceId, portion.Qty, now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *Service) MakeDrink(ctx context.Context, request OrderRequest) (OrderResult, error) {
 	return s.makeDrink(ctx, request, true)
+}
+
+func validateExtras(extras []ExtraIngredient) error {
+	if len(extras) > 2 {
+		return errors.New("at most two extra ingredients are allowed")
+	}
+	seen := make(map[uint64]bool, len(extras))
+	for _, extra := range extras {
+		if extra.TypeId == 0 || extra.Quantity <= 0 || math.IsNaN(extra.Quantity) || math.IsInf(extra.Quantity, 0) {
+			return errors.New("each extra ingredient requires type_id and positive quantity")
+		}
+		if math.Abs(round(extra.Quantity, 2)-extra.Quantity) > .000001 {
+			return errors.New("extra ingredient quantity supports at most two decimal places")
+		}
+		if seen[extra.TypeId] {
+			return fmt.Errorf("duplicate extra ingredient type %d", extra.TypeId)
+		}
+		seen[extra.TypeId] = true
+	}
+	return nil
+}
+
+func (s *Service) loadExtraItem(tx *gorm.DB, extra ExtraIngredient, step uint8) (model.BarRecipeItem, error) {
+	var ingredientType model.BarIngredientType
+	if err := tx.Where("id = ? AND status = 0 AND mixable = 1 AND extra_enabled = 1", extra.TypeId).Take(&ingredientType).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return model.BarRecipeItem{}, fmt.Errorf("ingredient type %d cannot be added to a drink", extra.TypeId)
+		}
+		return model.BarRecipeItem{}, err
+	}
+	if ingredientType.ExtraMaxQty <= 0 || extra.Quantity > ingredientType.ExtraMaxQty {
+		return model.BarRecipeItem{}, fmt.Errorf("extra %s exceeds the per-drink maximum of %g%s", ingredientType.Name, ingredientType.ExtraMaxQty, ingredientType.Unit)
+	}
+	return model.BarRecipeItem{TypeId: extra.TypeId, Qty: extra.Quantity, Step: step}, nil
 }
 
 func (s *Service) makeDrink(ctx context.Context, request OrderRequest, enhance bool) (OrderResult, error) {
 	if request.RecipeId == 0 {
 		return OrderResult{}, errors.New("recipe_id is required")
+	}
+	if err := validateExtras(request.Extras); err != nil {
+		return OrderResult{}, err
 	}
 	if request.Message == "" {
 		request.Message = ""
@@ -167,7 +213,7 @@ func (s *Service) makeDrink(ctx context.Context, request OrderRequest, enhance b
 		if err != nil {
 			return err
 		}
-		inputs := make([]allocatedInput, 0, len(items))
+		inputs := make([]allocatedInput, 0, len(items)+len(request.Extras))
 		missing := make([]MissingDetail, 0)
 		for _, item := range items {
 			input, detail, err := s.allocateItem(tx, item, request.Overrides[item.TypeId], now)
@@ -178,18 +224,33 @@ func (s *Service) makeDrink(ctx context.Context, request OrderRequest, enhance b
 				missing = append(missing, *detail)
 				continue
 			}
+			if err := deductInput(tx, input, now); err != nil {
+				return err
+			}
+			input.role = "recipe"
+			inputs = append(inputs, input)
+		}
+		for index, extra := range request.Extras {
+			item, err := s.loadExtraItem(tx, extra, uint8(len(items)+index+1))
+			if err != nil {
+				return err
+			}
+			input, detail, err := s.allocateItem(tx, item, 0, now)
+			if err != nil {
+				return err
+			}
+			if detail != nil {
+				missing = append(missing, *detail)
+				continue
+			}
+			if err := deductInput(tx, input, now); err != nil {
+				return err
+			}
+			input.role = "extra"
 			inputs = append(inputs, input)
 		}
 		if len(missing) > 0 {
 			return &MissingError{Details: missing}
-		}
-
-		for _, input := range inputs {
-			for _, portion := range input.portions {
-				if err := deductStock(tx, portion.InstanceId, portion.Qty, now); err != nil {
-					return err
-				}
-			}
 		}
 
 		var mappings []model.BarIngredientFlavor
@@ -205,7 +266,7 @@ func (s *Service) makeDrink(ctx context.Context, request OrderRequest, enhance b
 		mouthfeel := computeMouthfeel(inputs, recipe.Technique)
 		describeIngredients := make([]DescribeIngredient, 0, len(inputs))
 		for _, input := range inputs {
-			ingredient := DescribeIngredient{Name: input.typeInfo.Name, Qty: input.item.Qty, Unit: input.typeInfo.Unit}
+			ingredient := DescribeIngredient{Name: input.typeInfo.Name, Qty: input.item.Qty, Unit: input.typeInfo.Unit, Role: input.role}
 			for _, portion := range input.portions {
 				if portion.Freshness != nil && (ingredient.Freshness == nil || *portion.Freshness < *ingredient.Freshness) {
 					freshness := *portion.Freshness
@@ -227,8 +288,12 @@ func (s *Service) makeDrink(ctx context.Context, request OrderRequest, enhance b
 		trace := make([]TracePortion, 0)
 		steps := make([]PerformanceStep, 0, len(inputs))
 		for _, input := range inputs {
-			inputSnapshots = append(inputSnapshots, InputSnapshot{Kind: "ingredient", TypeId: input.item.TypeId, Qty: input.item.Qty, Portions: input.portions})
-			steps = append(steps, PerformanceStep{Step: input.item.Step, Action: "取料", TypeId: input.item.TypeId, TypeName: input.typeInfo.Name, Qty: input.item.Qty, Unit: input.typeInfo.Unit})
+			inputSnapshots = append(inputSnapshots, InputSnapshot{Kind: "ingredient", Role: input.role, TypeId: input.item.TypeId, Qty: input.item.Qty, Portions: input.portions})
+			action := "取料"
+			if input.role == "extra" {
+				action = "加料"
+			}
+			steps = append(steps, PerformanceStep{Step: input.item.Step, Action: action, TypeId: input.item.TypeId, TypeName: input.typeInfo.Name, Qty: input.item.Qty, Unit: input.typeInfo.Unit})
 			for _, portion := range input.portions {
 				var instance model.BarIngredientInstance
 				for _, candidate := range input.instances {
@@ -237,7 +302,7 @@ func (s *Service) makeDrink(ctx context.Context, request OrderRequest, enhance b
 						break
 					}
 				}
-				traceItem := TracePortion{TypeId: input.item.TypeId, TypeName: input.typeInfo.Name, Unit: input.typeInfo.Unit, InstanceId: portion.InstanceId, Code: portion.Code, Qty: portion.Qty, Source: instance.Source, SourceId: instance.SourceId}
+				traceItem := TracePortion{Role: input.role, TypeId: input.item.TypeId, TypeName: input.typeInfo.Name, Unit: input.typeInfo.Unit, InstanceId: portion.InstanceId, Code: portion.Code, Qty: portion.Qty, Source: instance.Source, SourceId: instance.SourceId}
 				if instance.Source == "restock" {
 					var log model.BarRestockLog
 					if err := tx.Where("id = ?", instance.SourceId).Take(&log).Error; err == nil {
