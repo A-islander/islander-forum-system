@@ -10,10 +10,14 @@ import (
 
 type recordingLLM struct {
 	request llmservice.Request
+	content string
 }
 
 func (client *recordingLLM) Complete(_ context.Context, request llmservice.Request) (string, error) {
 	client.request = request
+	if client.content != "" {
+		return client.content, nil
+	}
 	return "哼，浪花似的蓝色可不是随便摇出来的。椰香柔柔托着菠萝的明亮酸甜，入口清爽又圆润——拿稳了，别让海风抢走。", nil
 }
 
@@ -30,7 +34,7 @@ func TestIslandGirlDescriberKeepsPersonaAndDrinkData(t *testing.T) {
 	if err != nil || description == "" {
 		t.Fatalf("description=%q err=%v", description, err)
 	}
-	for _, expected := range []string{"岛民娘", "傲娇", "不自称AI", "绝不使用「您」", "嘴硬或调侃"} {
+	for _, expected := range []string{"岛民娘", "俏皮灵动", "傲娇和嘴硬", "不自称AI", "绝不使用「您」", "不要连续嘴硬"} {
 		if !strings.Contains(client.request.System, expected) {
 			t.Fatalf("system prompt does not contain %q: %s", expected, client.request.System)
 		}
@@ -81,7 +85,8 @@ func TestIslandGirlDescriberDoesNotDuplicateStaleWarning(t *testing.T) {
 }
 
 func TestIslandGirlDescriberBuildsIngredientPerformanceCue(t *testing.T) {
-	describer := NewIslandGirlDescriber(fixedLLM{content: "柠檬要现切，手别伸过来。"})
+	client := &recordingLLM{content: "柠檬要现切，酸香跑掉我可不负责。"}
+	describer := NewIslandGirlDescriber(client)
 	line, err := describer.DescribePerformanceCue(context.Background(), DescribeInput{
 		RecipeName: "海角黄昏", Technique: "摇和",
 		Ingredients: []DescribeIngredient{{Name: "柠檬", Qty: 15, Unit: "g"}},
@@ -92,6 +97,11 @@ func TestIslandGirlDescriberBuildsIngredientPerformanceCue(t *testing.T) {
 	}
 	if !strings.Contains(line, "柠檬") {
 		t.Fatalf("unexpected performance cue: %q", line)
+	}
+	for _, expected := range []string{"俏皮的现场互动", "不要使用哼、别催、拿稳"} {
+		if !strings.Contains(client.request.Prompt, expected) {
+			t.Fatalf("performance prompt does not contain %q: %s", expected, client.request.Prompt)
+		}
 	}
 }
 
