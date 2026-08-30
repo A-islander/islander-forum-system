@@ -20,10 +20,28 @@ import (
 func registerBarRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/bar/menu", methodMiddleware(http.HandlerFunc(barMenuHandler)))
 	mux.Handle("/api/bar/ingredients", methodMiddleware(http.HandlerFunc(barIngredientsHandler)))
+	mux.Handle("/api/bar/backpack", methodMiddleware(http.HandlerFunc(barBackpackHandler)))
 	mux.Handle("/api/bar/order", methodMiddleware(http.HandlerFunc(barOrderHandler)))
 	mux.Handle("/api/bar/drink/", methodMiddleware(http.HandlerFunc(barDrinkHandler)))
 	mux.Handle("/api/bar/trace/", methodMiddleware(http.HandlerFunc(barTraceHandler)))
 	mux.HandleFunc("/ws/bar/order", barWebSocketHandler)
+}
+
+func barBackpackHandler(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	userId, ok := authenticateBarToken(r.Header.Get("Authorization"))
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "invalid or missing Authorization token")
+		return
+	}
+	items, err := controller.GetBarBackpack(r.Context(), userId)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	write(w, map[string]interface{}{"items": items})
 }
 
 func barIngredientsHandler(w http.ResponseWriter, r *http.Request) {

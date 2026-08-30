@@ -175,6 +175,18 @@ type IngredientCatalogItem struct {
 	Available      bool    `json:"available"`
 }
 
+type BackpackItem struct {
+	TypeId           uint64  `json:"type_id"`
+	Code             string  `json:"code"`
+	Name             string  `json:"name"`
+	Category         string  `json:"category"`
+	Unit             string  `json:"unit"`
+	Codex            string  `json:"codex"`
+	Quantity         float64 `json:"quantity"`
+	BatchCount       uint    `json:"batch_count"`
+	EarliestExpireAt int64   `json:"earliest_expire_at"`
+}
+
 type RestockRequest struct {
 	TypeId     uint64                 `json:"type_id"`
 	Quantity   float64                `json:"quantity"`

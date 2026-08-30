@@ -28,6 +28,10 @@ func GetBarIngredients(ctx context.Context) ([]barservice.IngredientCatalogItem,
 	return barService.Ingredients(ctx)
 }
 
+func GetBarBackpack(ctx context.Context, userId uint64) ([]barservice.BackpackItem, error) {
+	return barService.Backpack(ctx, userId)
+}
+
 func MakeBarDrink(ctx context.Context, request barservice.OrderRequest) (barservice.OrderResult, error) {
 	return barService.MakeDrinkAsync(ctx, request)
 }

@@ -77,6 +77,31 @@ func (s *Service) Ingredients(ctx context.Context) ([]IngredientCatalogItem, err
 	return result, nil
 }
 
+// Backpack returns the caller's currently usable ingredient batches grouped
+// by type. Ownership is always supplied by authenticated server context.
+func (s *Service) Backpack(ctx context.Context, userId uint64) ([]BackpackItem, error) {
+	if userId == 0 {
+		return nil, errors.New("user_id is required")
+	}
+	result := make([]BackpackItem, 0)
+	now := s.now().Unix()
+	err := s.db.WithContext(ctx).Table("bar_user_ingredient_instance AS i").
+		Select(`t.id AS type_id, t.code, t.name, t.category, t.unit, t.codex,
+		        SUM(i.qty_remain) AS quantity, COUNT(*) AS batch_count,
+		        MIN(i.expire_at) AS earliest_expire_at`).
+		Joins("JOIN bar_ingredient_type AS t ON t.id = i.type_id AND t.status = 0").
+		Where("i.user_id = ? AND i.status = 0 AND i.qty_remain > 0 AND i.expire_at > ?", userId, now).
+		Group("t.id, t.code, t.name, t.category, t.unit, t.codex").
+		Order("t.id ASC").Scan(&result).Error
+	if err != nil {
+		return nil, err
+	}
+	for index := range result {
+		result[index].Quantity = round(result[index].Quantity, 2)
+	}
+	return result, nil
+}
+
 func (s *Service) Restock(ctx context.Context, request RestockRequest) (model.BarIngredientInstance, error) {
 	if request.TypeId == 0 || request.Quantity <= 0 {
 		return model.BarIngredientInstance{}, errors.New("type_id and positive quantity are required")

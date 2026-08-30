@@ -76,6 +76,24 @@ type BarIngredientInstance struct {
 
 func (BarIngredientInstance) TableName() string { return "bar_ingredient_instance" }
 
+type BarUserIngredientInstance struct {
+	Id         uint64          `gorm:"column:id;primaryKey;autoIncrement:true;not null" json:"id"`
+	UserId     uint64          `gorm:"column:user_id;type:bigint unsigned;not null;index:idx_user_type_status_expire,priority:1;index:idx_user_status,priority:1" json:"user_id"`
+	TypeId     uint64          `gorm:"column:type_id;type:bigint unsigned;not null;index:idx_user_type_status_expire,priority:2" json:"type_id"`
+	QtyTotal   float64         `gorm:"column:qty_total;type:decimal(10,2);not null" json:"qty_total"`
+	QtyRemain  float64         `gorm:"column:qty_remain;type:decimal(10,2);not null" json:"qty_remain"`
+	ProducedAt int64           `gorm:"column:produced_at;type:bigint;not null" json:"produced_at"`
+	ExpireAt   int64           `gorm:"column:expire_at;type:bigint;not null;index:idx_user_type_status_expire,priority:4" json:"expire_at"`
+	Attrs      json.RawMessage `gorm:"column:attrs;type:json;default:null" json:"attrs"`
+	Source     string          `gorm:"column:source;type:varchar(16);not null;default:collect" json:"source"`
+	SourceId   uint64          `gorm:"column:source_id;type:bigint unsigned;not null;default:0" json:"source_id"`
+	Status     uint8           `gorm:"column:status;type:tinyint unsigned;not null;default:0;index:idx_user_type_status_expire,priority:3;index:idx_user_status,priority:2" json:"status"`
+	CreatedAt  int64           `gorm:"column:created_at;type:bigint;not null" json:"created_at"`
+	UpdatedAt  int64           `gorm:"column:updated_at;type:bigint;not null" json:"updated_at"`
+}
+
+func (BarUserIngredientInstance) TableName() string { return "bar_user_ingredient_instance" }
+
 type BarRestockLog struct {
 	Id         uint64          `gorm:"column:id;primaryKey;autoIncrement:true;not null" json:"id"`
 	TypeId     uint64          `gorm:"column:type_id;type:bigint unsigned;not null;index:idx_type_time,priority:1" json:"type_id"`
@@ -184,6 +202,7 @@ func BarModels() []interface{} {
 		&BarIngredientType{},
 		&BarIngredientFlavor{},
 		&BarIngredientInstance{},
+		&BarUserIngredientInstance{},
 		&BarRestockLog{},
 		&BarProcess{},
 		&BarProcessLog{},

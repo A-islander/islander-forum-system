@@ -211,6 +211,48 @@ func TestBarIngredientsArePublic(t *testing.T) {
 	}
 }
 
+func TestBarBackpackRequiresAuthorization(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/api/bar/backpack", nil)
+	response := httptest.NewRecorder()
+	barBackpackHandler(response, request)
+	var payload struct {
+		Code int `json:"code"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Code != http.StatusUnauthorized {
+		t.Fatalf("code=%d, want 401", payload.Code)
+	}
+}
+
+func TestBarBackpackUsesAuthenticatedUser(t *testing.T) {
+	originalResolver := resolveBarUserId
+	resolveBarUserId = func(token string) (uint64, error) {
+		if token != "backpack-token" {
+			return 0, errors.New("invalid token")
+		}
+		return 8848, nil
+	}
+	defer func() { resolveBarUserId = originalResolver }()
+	request := httptest.NewRequest(http.MethodGet, "/api/bar/backpack", nil)
+	request.Header.Set("Authorization", "backpack-token")
+	response := httptest.NewRecorder()
+	barBackpackHandler(response, request)
+	var payload struct {
+		Code int `json:"code"`
+		Data struct {
+			Items []barservice.BackpackItem `json:"items"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Code != http.StatusOK || payload.Data.Items == nil {
+		t.Fatalf("unexpected response: code=%d body=%s", payload.Code, response.Body.String())
+	}
+}
+
 func TestBarWebSocketRejectsInvalidToken(t *testing.T) {
 	originalResolver := resolveBarUserId
 	resolveBarUserId = func(string) (uint64, error) { return 0, errors.New("invalid token") }
