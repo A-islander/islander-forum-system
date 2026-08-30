@@ -79,3 +79,26 @@ func TestIslandGirlDescriberDoesNotDuplicateStaleWarning(t *testing.T) {
 		t.Fatalf("stale warning was duplicated: %s", description)
 	}
 }
+
+func TestIslandGirlDescriberBuildsIngredientPerformanceCue(t *testing.T) {
+	describer := NewIslandGirlDescriber(fixedLLM{content: "柠檬要现切，手别伸过来。"})
+	line, err := describer.DescribePerformanceCue(context.Background(), DescribeInput{
+		RecipeName: "海角黄昏", Technique: "摇和",
+		Ingredients: []DescribeIngredient{{Name: "柠檬", Qty: 15, Unit: "g"}},
+		Trace:       []TracePortion{{TypeId: 11, TypeName: "柠檬", SourceNote: "岛民娘从码头市场挑的"}},
+	}, "ingredient", &PerformanceStep{Step: 1, TypeId: 11, TypeName: "柠檬", Qty: 15, Unit: "g"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(line, "柠檬") {
+		t.Fatalf("unexpected performance cue: %q", line)
+	}
+}
+
+func TestIslandGirlDescriberRejectsCompletedTechniqueCue(t *testing.T) {
+	describer := NewIslandGirlDescriber(fixedLLM{content: "摇和好了，拿稳。"})
+	_, err := describer.DescribePerformanceCue(context.Background(), DescribeInput{Technique: "摇和"}, "technique", nil)
+	if err == nil {
+		t.Fatal("expected a completed-technique cue to be rejected")
+	}
+}

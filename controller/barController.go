@@ -33,6 +33,10 @@ func EnhanceBarDrinkDescription(ctx context.Context, result *barservice.OrderRes
 	barService.EnhanceDescription(ctx, result)
 }
 
+func BuildBarPerformanceCue(ctx context.Context, result *barservice.OrderResult, stage string, stepIndex int) (string, error) {
+	return barService.BuildPerformanceCue(ctx, result, stage, stepIndex)
+}
+
 func GetBarDrink(ctx context.Context, id uint64) (barservice.DrinkDetail, error) {
 	return barService.Drink(ctx, id)
 }

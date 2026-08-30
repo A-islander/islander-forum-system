@@ -3,6 +3,7 @@ package bar
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -37,6 +38,10 @@ type DescribeIngredient struct {
 
 type Describer interface {
 	Describe(ctx context.Context, input DescribeInput) (string, error)
+}
+
+type PerformanceDescriber interface {
+	DescribePerformanceCue(ctx context.Context, input DescribeInput, stage string, step *PerformanceStep) (string, error)
 }
 
 type RuleDescriber struct{}
@@ -128,6 +133,54 @@ func (d *IslandGirlDescriber) Describe(ctx context.Context, input DescribeInput)
 		return "", err
 	}
 	return enforceCriticalFacts(description, input), nil
+}
+
+func (d *IslandGirlDescriber) DescribePerformanceCue(ctx context.Context, input DescribeInput, stage string, step *PerformanceStep) (string, error) {
+	data := map[string]interface{}{
+		"scene": stage, "recipe_name": input.RecipeName, "technique": input.Technique,
+		"customer_message": input.CustomerMessage,
+	}
+	var instruction string
+	switch stage {
+	case "ingredient":
+		if step == nil {
+			return "", errors.New("ingredient performance cue requires a step")
+		}
+		data["step"] = step
+		trace := make([]TracePortion, 0)
+		for _, portion := range input.Trace {
+			if portion.TypeId == step.TypeId {
+				trace = append(trace, portion)
+			}
+		}
+		data["trace"] = trace
+		instruction = fmt.Sprintf("只输出取用%s时说的一句话，12到35个汉字；必须自然说出原料名%s，可带现场动作和一点嘴硬。若数据提供来源可以提及，但绝不编造来源、数量或状态。", step.TypeName, step.TypeName)
+	case "technique":
+		instruction = fmt.Sprintf("只输出即将开始%s手法前说的一句话，12到35个汉字；必须包含技法名%s，使用将要开始的语气，不能说已经摇好、做完或完成，带现场感和一点嘴硬，不编造其他技法。", input.Technique, input.Technique)
+	default:
+		return "", fmt.Errorf("unsupported performance stage %q", stage)
+	}
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return "", err
+	}
+	line, err := d.client.Complete(ctx, llmservice.Request{
+		System: islandGirlSystemPrompt, Prompt: instruction + "不要输出引号、标题、JSON、Markdown或解释。数据：" + string(raw), MaxTokens: 80,
+	})
+	if err != nil {
+		return "", err
+	}
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return "", errors.New("empty performance cue")
+	}
+	if stage == "ingredient" && !strings.Contains(line, step.TypeName) {
+		return "", fmt.Errorf("performance cue omitted ingredient %s", step.TypeName)
+	}
+	if stage == "technique" && (!strings.Contains(line, input.Technique) || strings.Contains(line, "好了") || strings.Contains(line, "完成")) {
+		return "", fmt.Errorf("performance cue does not precede technique %s", input.Technique)
+	}
+	return line, nil
 }
 
 func enforceCriticalFacts(description string, input DescribeInput) string {

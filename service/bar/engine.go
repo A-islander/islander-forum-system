@@ -323,6 +323,43 @@ func (s *Service) EnhanceDescription(ctx context.Context, result *OrderResult) {
 	}
 }
 
+// BuildPerformanceCue generates one WS line. Callers may launch cues in
+// parallel and consume them in recipe order. Deterministic lines remain the
+// fallback for any individual failed cue.
+func (s *Service) BuildPerformanceCue(ctx context.Context, result *OrderResult, stage string, stepIndex int) (string, error) {
+	if s.describer == nil || result == nil || result.Drink.Id == 0 {
+		return "", errors.New("performance describer is unavailable")
+	}
+	if stage == "serving" {
+		description, err := s.describer.Describe(ctx, result.DescribeInput)
+		if err != nil {
+			return "", err
+		}
+		description = strings.TrimSpace(description)
+		if description == "" {
+			return "", errors.New("empty serving description")
+		}
+		if updateErr := s.db.WithContext(ctx).Model(&model.BarDrink{}).Where("id = ?", result.Drink.Id).
+			Update("description", description).Error; updateErr != nil {
+			return "", updateErr
+		}
+		result.Drink.Description = description
+		return description, nil
+	}
+	describer, ok := s.describer.(PerformanceDescriber)
+	if !ok {
+		return "", errors.New("describer does not support performance cues")
+	}
+	var step *PerformanceStep
+	if stage == "ingredient" {
+		if stepIndex < 0 || stepIndex >= len(result.Steps) {
+			return "", errors.New("ingredient performance cue index is out of range")
+		}
+		step = &result.Steps[stepIndex]
+	}
+	return describer.DescribePerformanceCue(ctx, result.DescribeInput, stage, step)
+}
+
 func (s *Service) Menu(ctx context.Context) ([]MenuRecipe, error) {
 	var recipes []model.BarRecipe
 	if err := s.db.WithContext(ctx).Where("status = 0").Order("order_count DESC, id ASC").Find(&recipes).Error; err != nil {

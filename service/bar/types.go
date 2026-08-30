@@ -75,12 +75,13 @@ type TracePortion struct {
 }
 
 type PerformanceStep struct {
-	Step     uint8   `json:"step"`
-	Action   string  `json:"action"`
-	TypeId   uint64  `json:"type_id"`
-	TypeName string  `json:"type_name"`
-	Qty      float64 `json:"qty"`
-	Unit     string  `json:"unit"`
+	Step       uint8   `json:"step"`
+	Action     string  `json:"action"`
+	TypeId     uint64  `json:"type_id"`
+	TypeName   string  `json:"type_name"`
+	Qty        float64 `json:"qty"`
+	Unit       string  `json:"unit"`
+	DurationMs int     `json:"duration_ms,omitempty"`
 }
 
 type DrinkView struct {

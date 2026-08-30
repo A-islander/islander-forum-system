@@ -1,11 +1,13 @@
 package route
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -147,6 +149,14 @@ type wsEvent struct {
 	Payload interface{} `json:"payload"`
 }
 
+type performanceCueResult struct {
+	text   string
+	result barservice.OrderResult
+	err    error
+}
+
+var buildBarPerformanceCue = controller.BuildBarPerformanceCue
+
 func barWebSocketHandler(w http.ResponseWriter, r *http.Request) {
 	connection, err := barUpgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -170,51 +180,109 @@ func barWebSocketHandler(w http.ResponseWriter, r *http.Request) {
 		sendWSEvent(connection, "order.failed", wsFailurePayload(err))
 		return
 	}
+	timeScale := wsTimeScale()
 	if !sendWSEvent(connection, "order.accepted", map[string]interface{}{
-		"order_id": result.OrderId, "recipe_name": result.RecipeName, "technique": result.Technique,
+		"order_id": result.OrderId, "recipe_name": result.RecipeName, "technique": result.Technique, "time_scale": timeScale,
 	}) {
 		return
 	}
+	buildCue := func(stage string, stepIndex int) <-chan performanceCueResult {
+		ready := make(chan performanceCueResult, 1)
+		go func(current barservice.OrderResult) {
+			line, cueErr := buildBarPerformanceCue(r.Context(), &current, stage, stepIndex)
+			ready <- performanceCueResult{text: line, result: current, err: cueErr}
+		}(result)
+		return ready
+	}
+	ingredientCues := make([]<-chan performanceCueResult, len(result.Steps))
+	for index := range result.Steps {
+		ingredientCues[index] = buildCue("ingredient", index)
+	}
+	techniqueCue := buildCue("technique", -1)
+	servingCue := buildCue("serving", -1)
 	if !sendWSEvent(connection, "bartender.say", map[string]interface{}{
-		"text": fmt.Sprintf("哼，%s？算你会挑。等着，别催。", result.RecipeName),
+		"text": fmt.Sprintf("哼，%s？算你会挑。等着，别催。", result.RecipeName), "stage": "opening", "source": "rule",
 	}) {
 		return
 	}
-	descriptionReady := make(chan barservice.OrderResult, 1)
-	go func(current barservice.OrderResult) {
-		controller.EnhanceBarDrinkDescription(r.Context(), &current)
-		descriptionReady <- current
-	}(result)
-	for _, step := range result.Steps {
-		if !sendWSEvent(connection, "bartender.say", map[string]interface{}{"text": ingredientPerformanceLine(step, result.Trace)}) {
+	time.Sleep(time.Duration(scaledPerformanceDuration(2000, timeScale)) * time.Millisecond)
+	for index, step := range result.Steps {
+		line := ingredientPerformanceLine(step, result.Trace)
+		lineSource := "rule"
+		if cue, ok := waitPerformanceCue(r.Context(), ingredientCues[index]); ok && cue.err == nil && cue.text != "" {
+			line = cue.text
+			lineSource = "llm"
+		}
+		if !sendWSEvent(connection, "bartender.say", map[string]interface{}{
+			"text": line, "stage": "ingredient", "source": lineSource, "type_id": step.TypeId,
+		}) {
 			return
 		}
+		step.DurationMs = scaledPerformanceDuration(1200, timeScale)
 		if !sendWSEvent(connection, "action.start", step) {
 			return
 		}
-		time.Sleep(800 * time.Millisecond)
+		time.Sleep(time.Duration(step.DurationMs) * time.Millisecond)
 	}
-	duration := techniqueDuration(result.Technique)
-	if !sendWSEvent(connection, "bartender.say", map[string]interface{}{"text": techniquePerformanceLine(result.Technique)}) {
+	techniqueLine := techniquePerformanceLine(result.Technique)
+	techniqueSource := "rule"
+	if cue, ok := waitPerformanceCue(r.Context(), techniqueCue); ok && cue.err == nil && cue.text != "" {
+		techniqueLine = cue.text
+		techniqueSource = "llm"
+	}
+	duration := scaledPerformanceDuration(techniqueDuration(result.Technique), timeScale)
+	if !sendWSEvent(connection, "bartender.say", map[string]interface{}{
+		"text": techniqueLine, "stage": "technique", "source": techniqueSource,
+	}) {
 		return
 	}
 	if !sendWSEvent(connection, "action.technique", map[string]interface{}{"technique": result.Technique, "duration_ms": duration}) {
 		return
 	}
 	time.Sleep(time.Duration(duration) * time.Millisecond)
-	select {
-	case enhanced := <-descriptionReady:
-		result = enhanced
-	case <-r.Context().Done():
-	}
 	serveText := result.Drink.Description
+	serveSource := "rule"
+	if cue, ok := waitPerformanceCue(r.Context(), servingCue); ok && cue.err == nil && cue.text != "" {
+		result = cue.result
+		serveText = cue.text
+		serveSource = "llm"
+	}
 	if serveText == "" {
 		serveText = fmt.Sprintf("好了，你的%s。别洒了。", result.RecipeName)
 	}
-	if !sendWSEvent(connection, "bartender.say", map[string]interface{}{"text": serveText}) {
+	if !sendWSEvent(connection, "bartender.say", map[string]interface{}{
+		"text": serveText, "stage": "serving", "source": serveSource,
+	}) {
 		return
 	}
 	sendWSEvent(connection, "order.completed", result)
+}
+
+func waitPerformanceCue(ctx context.Context, ready <-chan performanceCueResult) (performanceCueResult, bool) {
+	select {
+	case result := <-ready:
+		return result, true
+	case <-ctx.Done():
+		return performanceCueResult{}, false
+	}
+}
+
+func wsTimeScale() float64 {
+	value, err := strconv.ParseFloat(strings.TrimSpace(os.Getenv("BAR_WS_TIME_SCALE")), 64)
+	if err != nil || value <= 0 {
+		return 1.5
+	}
+	if value < 0.25 {
+		return 0.25
+	}
+	if value > 4 {
+		return 4
+	}
+	return value
+}
+
+func scaledPerformanceDuration(baseMs int, scale float64) int {
+	return int(float64(baseMs)*scale + 0.5)
 }
 
 func wsFailurePayload(err error) map[string]interface{} {

@@ -1,10 +1,13 @@
 package route
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +16,42 @@ import (
 )
 
 func TestBarWebSocketPerformance(t *testing.T) {
+	previousScale, hadScale := os.LookupEnv("BAR_WS_TIME_SCALE")
+	if err := os.Setenv("BAR_WS_TIME_SCALE", "0.25"); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if hadScale {
+			_ = os.Setenv("BAR_WS_TIME_SCALE", previousScale)
+		} else {
+			_ = os.Unsetenv("BAR_WS_TIME_SCALE")
+		}
+	}()
+	originalCueBuilder := buildBarPerformanceCue
+	defer func() { buildBarPerformanceCue = originalCueBuilder }()
+	var cueLock sync.Mutex
+	startedCues := 0
+	allCuesStarted := make(chan struct{})
+	buildBarPerformanceCue = func(_ context.Context, result *barservice.OrderResult, stage string, stepIndex int) (string, error) {
+		cueLock.Lock()
+		startedCues++
+		if startedCues == 5 {
+			close(allCuesStarted)
+		}
+		cueLock.Unlock()
+		<-allCuesStarted
+		switch stage {
+		case "ingredient":
+			return result.Steps[stepIndex].TypeName + "正在取，别催。", nil
+		case "technique":
+			return "要开始摇和了，抓稳吧台。", nil
+		case "serving":
+			result.Drink.Description = "这杯是并发生成的上酒文案，拿稳了。"
+			return result.Drink.Description, nil
+		default:
+			return "", nil
+		}
+	}
 	mux := http.NewServeMux()
 	registerBarRoutes(mux)
 	server := httptest.NewServer(mux)
@@ -35,10 +74,13 @@ func TestBarWebSocketPerformance(t *testing.T) {
 	seen := make(map[string]int)
 	var sequence []string
 	var accepted struct {
-		OrderId    string `json:"order_id"`
-		RecipeName string `json:"recipe_name"`
-		Technique  string `json:"technique"`
+		OrderId    string  `json:"order_id"`
+		RecipeName string  `json:"recipe_name"`
+		Technique  string  `json:"technique"`
+		TimeScale  float64 `json:"time_scale"`
 	}
+	var actionDuration int
+	llmLines := 0
 	for {
 		var event struct {
 			Type    string          `json:"type"`
@@ -52,6 +94,24 @@ func TestBarWebSocketPerformance(t *testing.T) {
 		if event.Type == "order.accepted" {
 			if err := json.Unmarshal(event.Payload, &accepted); err != nil {
 				t.Fatal(err)
+			}
+		}
+		if event.Type == "action.start" {
+			var action barservice.PerformanceStep
+			if err := json.Unmarshal(event.Payload, &action); err != nil {
+				t.Fatal(err)
+			}
+			actionDuration = action.DurationMs
+		}
+		if event.Type == "bartender.say" {
+			var line struct {
+				Source string `json:"source"`
+			}
+			if err := json.Unmarshal(event.Payload, &line); err != nil {
+				t.Fatal(err)
+			}
+			if line.Source == "llm" {
+				llmLines++
 			}
 		}
 		if event.Type == "order.failed" {
@@ -69,8 +129,14 @@ func TestBarWebSocketPerformance(t *testing.T) {
 	if seen["action.start"] != 3 {
 		t.Fatalf("expected 3 ingredient actions, got %d", seen["action.start"])
 	}
-	if accepted.OrderId == "" || accepted.RecipeName != "海角黄昏" || accepted.Technique != "摇和" {
+	if accepted.OrderId == "" || accepted.RecipeName != "海角黄昏" || accepted.Technique != "摇和" || accepted.TimeScale != 0.25 {
 		t.Fatalf("unexpected accepted payload: %+v", accepted)
+	}
+	if actionDuration != 300 {
+		t.Fatalf("action duration = %d, want 300", actionDuration)
+	}
+	if llmLines != 5 {
+		t.Fatalf("LLM performance lines = %d, want 5", llmLines)
 	}
 	if seen["bartender.say"] < 6 {
 		t.Fatalf("expected opening, ingredient, technique and serving lines; got %d", seen["bartender.say"])
