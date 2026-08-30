@@ -3,6 +3,7 @@ package route
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -29,6 +30,14 @@ func TestBarWebSocketPerformance(t *testing.T) {
 	}()
 	originalCueBuilder := buildBarPerformanceCue
 	defer func() { buildBarPerformanceCue = originalCueBuilder }()
+	originalResolver := resolveBarUserId
+	resolveBarUserId = func(token string) (uint64, error) {
+		if token != "test-token" {
+			return 0, errors.New("invalid token")
+		}
+		return 4321, nil
+	}
+	defer func() { resolveBarUserId = originalResolver }()
 	var cueLock sync.Mutex
 	startedCues := 0
 	allCuesStarted := make(chan struct{})
@@ -66,7 +75,8 @@ func TestBarWebSocketPerformance(t *testing.T) {
 	_ = connection.SetReadDeadline(time.Now().Add(12 * time.Second))
 	if err := connection.WriteJSON(map[string]interface{}{
 		"type":    "order.create",
-		"payload": map[string]interface{}{"recipe_id": 1, "ordered_by": 8848, "message": "ws integration test"},
+		"token":   "test-token",
+		"payload": map[string]interface{}{"recipe_id": 1, "ordered_by": 9999, "message": "ws integration test"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -81,6 +91,7 @@ func TestBarWebSocketPerformance(t *testing.T) {
 	}
 	var actionDuration int
 	llmLines := 0
+	var completed barservice.OrderResult
 	for {
 		var event struct {
 			Type    string          `json:"type"`
@@ -114,6 +125,11 @@ func TestBarWebSocketPerformance(t *testing.T) {
 				llmLines++
 			}
 		}
+		if event.Type == "order.completed" {
+			if err := json.Unmarshal(event.Payload, &completed); err != nil {
+				t.Fatal(err)
+			}
+		}
 		if event.Type == "order.failed" {
 			t.Fatal("websocket order failed")
 		}
@@ -138,6 +154,9 @@ func TestBarWebSocketPerformance(t *testing.T) {
 	if llmLines != 5 {
 		t.Fatalf("LLM performance lines = %d, want 5", llmLines)
 	}
+	if completed.Drink.OrderedBy != 4321 {
+		t.Fatalf("ordered_by = %d, want token user 4321", completed.Drink.OrderedBy)
+	}
 	if seen["bartender.say"] < 6 {
 		t.Fatalf("expected opening, ingredient, technique and serving lines; got %d", seen["bartender.say"])
 	}
@@ -151,6 +170,56 @@ func TestBarWebSocketPerformance(t *testing.T) {
 	}
 	if strings.Join(sequence, ",") != strings.Join(wantSequence, ",") {
 		t.Fatalf("unexpected websocket sequence: %v", sequence)
+	}
+}
+
+func TestBarHTTPOrderRequiresAuthorization(t *testing.T) {
+	mux := http.NewServeMux()
+	registerBarRoutes(mux)
+	request := httptest.NewRequest(http.MethodPost, "/api/bar/order", strings.NewReader(`{"recipe_id":1,"ordered_by":9999}`))
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	var payload struct {
+		Code int `json:"code"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Code != http.StatusUnauthorized {
+		t.Fatalf("code = %d, want 401", payload.Code)
+	}
+}
+
+func TestBarWebSocketRejectsInvalidToken(t *testing.T) {
+	originalResolver := resolveBarUserId
+	resolveBarUserId = func(string) (uint64, error) { return 0, errors.New("invalid token") }
+	defer func() { resolveBarUserId = originalResolver }()
+
+	mux := http.NewServeMux()
+	registerBarRoutes(mux)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	connection, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"/ws/bar/order", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	if err := connection.WriteJSON(map[string]interface{}{
+		"type": "order.create", "token": "bad-token", "payload": map[string]interface{}{"recipe_id": 1},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var event struct {
+		Type    string `json:"type"`
+		Payload struct {
+			Reason string `json:"reason"`
+		} `json:"payload"`
+	}
+	if err := connection.ReadJSON(&event); err != nil {
+		t.Fatal(err)
+	}
+	if event.Type != "order.failed" || event.Payload.Reason != "unauthorized" {
+		t.Fatalf("unexpected event: %+v", event)
 	}
 }
 
@@ -186,5 +255,16 @@ func TestBarRestockIsNotPublic(t *testing.T) {
 	mux.ServeHTTP(response, request)
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("restock endpoint status = %d, want 404", response.Code)
+	}
+}
+
+func TestBarStockIsNotPublic(t *testing.T) {
+	mux := http.NewServeMux()
+	registerBarRoutes(mux)
+	request := httptest.NewRequest(http.MethodGet, "/api/bar/stock", nil)
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("stock endpoint status = %d, want 404", response.Code)
 	}
 }

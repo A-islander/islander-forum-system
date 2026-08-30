@@ -22,7 +22,6 @@ func registerBarRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/bar/order", methodMiddleware(http.HandlerFunc(barOrderHandler)))
 	mux.Handle("/api/bar/drink/", methodMiddleware(http.HandlerFunc(barDrinkHandler)))
 	mux.Handle("/api/bar/trace/", methodMiddleware(http.HandlerFunc(barTraceHandler)))
-	mux.Handle("/api/bar/stock", methodMiddleware(http.HandlerFunc(barStockHandler)))
 	mux.HandleFunc("/ws/bar/order", barWebSocketHandler)
 }
 
@@ -64,11 +63,17 @@ func barOrderHandler(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
+	userId, ok := authenticateBarToken(r.Header.Get("Authorization"))
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "invalid or missing Authorization token")
+		return
+	}
 	var request barservice.OrderRequest
 	if err := decodeJSON(r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	request.OrderedBy = userId
 	result, err := controller.MakeBarDrink(r.Context(), request)
 	if err != nil {
 		writeBarError(w, err)
@@ -111,18 +116,6 @@ func barTraceHandler(w http.ResponseWriter, r *http.Request) {
 	write(w, trace)
 }
 
-func barStockHandler(w http.ResponseWriter, r *http.Request) {
-	if !requireMethod(w, r, http.MethodGet) {
-		return
-	}
-	stock, err := controller.GetBarStock(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	write(w, stock)
-}
-
 func writeBarError(w http.ResponseWriter, err error) {
 	var missing *barservice.MissingError
 	if errors.As(err, &missing) {
@@ -140,6 +133,7 @@ var barUpgrader = websocket.Upgrader{
 
 type wsOrderRequest struct {
 	Type    string                  `json:"type"`
+	Token   string                  `json:"token"`
 	Payload barservice.OrderRequest `json:"payload"`
 }
 
@@ -156,6 +150,25 @@ type performanceCueResult struct {
 }
 
 var buildBarPerformanceCue = controller.BuildBarPerformanceCue
+var resolveBarUserId = func(token string) (uint64, error) {
+	user, err := controller.GetUserByToken(token)
+	if err != nil {
+		return 0, err
+	}
+	if user.Id <= 0 {
+		return 0, errors.New("invalid user")
+	}
+	return uint64(user.Id), nil
+}
+
+func authenticateBarToken(token string) (uint64, bool) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return 0, false
+	}
+	userId, err := resolveBarUserId(token)
+	return userId, err == nil && userId > 0
+}
 
 func barWebSocketHandler(w http.ResponseWriter, r *http.Request) {
 	connection, err := barUpgrader.Upgrade(w, r, nil)
@@ -174,6 +187,12 @@ func barWebSocketHandler(w http.ResponseWriter, r *http.Request) {
 		sendWSEvent(connection, "order.failed", map[string]interface{}{"reason": "first event must be order.create"})
 		return
 	}
+	userId, ok := authenticateBarToken(request.Token)
+	if !ok {
+		sendWSEvent(connection, "order.failed", map[string]interface{}{"reason": "unauthorized"})
+		return
+	}
+	request.Payload.OrderedBy = userId
 	_ = connection.SetReadDeadline(time.Time{})
 	result, err := controller.MakeBarDrinkForPerformance(r.Context(), request.Payload)
 	if err != nil {
