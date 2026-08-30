@@ -131,6 +131,23 @@ func (s *Service) allocateItem(tx *gorm.DB, item model.BarRecipeItem, overrideId
 	return input, nil, nil
 }
 
+func deductStock(tx *gorm.DB, instanceId uint64, quantity float64, now int64) error {
+	result := tx.Exec(`
+		UPDATE bar_ingredient_instance
+		SET status = IF(qty_remain - ? <= 0, 1, 0),
+		    qty_remain = qty_remain - ?,
+		    updated_at = ?
+		WHERE id = ? AND status = 0 AND qty_remain >= ?`,
+		quantity, quantity, now, instanceId, quantity)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return errors.New("stock changed concurrently; please retry")
+	}
+	return nil
+}
+
 func (s *Service) MakeDrink(ctx context.Context, request OrderRequest) (OrderResult, error) {
 	return s.makeDrink(ctx, request, true)
 }
@@ -169,19 +186,8 @@ func (s *Service) makeDrink(ctx context.Context, request OrderRequest, enhance b
 
 		for _, input := range inputs {
 			for _, portion := range input.portions {
-				updates := map[string]interface{}{
-					"qty_remain": gorm.Expr("qty_remain - ?", portion.Qty),
-					"status":     gorm.Expr("IF(qty_remain - ? <= 0, 1, 0)", portion.Qty),
-					"updated_at": now,
-				}
-				updated := tx.Model(&model.BarIngredientInstance{}).
-					Where("id = ? AND status = 0 AND qty_remain >= ?", portion.InstanceId, portion.Qty).
-					Updates(updates)
-				if updated.Error != nil {
-					return updated.Error
-				}
-				if updated.RowsAffected != 1 {
-					return errors.New("stock changed concurrently; please retry")
+				if err := deductStock(tx, portion.InstanceId, portion.Qty, now); err != nil {
+					return err
 				}
 			}
 		}

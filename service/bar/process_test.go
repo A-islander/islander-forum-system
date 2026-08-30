@@ -3,6 +3,7 @@ package bar
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/forum_server/model"
 )
@@ -52,5 +53,36 @@ func TestEffectiveFreshnessUsesElapsedTime(t *testing.T) {
 	attrs := effectiveAttributes(instance, ingredientType, 1_000+2*86400)
 	if attrs["freshness"] != 70 {
 		t.Fatalf("freshness = %v, want 70", attrs["freshness"])
+	}
+}
+
+func TestDeductStockKeepsPartialBatchAvailable(t *testing.T) {
+	tx := model.BarDatabase().Begin()
+	if tx.Error != nil {
+		t.Fatal(tx.Error)
+	}
+	defer tx.Rollback()
+	now := time.Now().Unix()
+	batch := model.BarIngredientInstance{Code: "RUM-DEDUCT-BOUNDARY", TypeId: 1, QtyTotal: 500, QtyRemain: 500, ProducedAt: now, ExpireAt: now + 86400, Source: "restock", SourceId: 0, Status: 0, CreatedAt: now, UpdatedAt: now}
+	if err := tx.Create(&batch).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := deductStock(tx, batch.Id, 400, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Where("id = ?", batch.Id).Take(&batch).Error; err != nil {
+		t.Fatal(err)
+	}
+	if batch.QtyRemain != 100 || batch.Status != 0 {
+		t.Fatalf("partial batch incorrectly exhausted: %+v", batch)
+	}
+	if err := deductStock(tx, batch.Id, 100, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Where("id = ?", batch.Id).Take(&batch).Error; err != nil {
+		t.Fatal(err)
+	}
+	if batch.QtyRemain != 0 || batch.Status != 1 {
+		t.Fatalf("empty batch not exhausted: %+v", batch)
 	}
 }

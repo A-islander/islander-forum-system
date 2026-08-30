@@ -51,18 +51,8 @@ func (s *Service) Process(ctx context.Context, processId, operatorUid uint64) (m
 		}
 		for _, input := range inputs {
 			for _, portion := range input.portions {
-				updated := tx.Model(&model.BarIngredientInstance{}).
-					Where("id = ? AND status = 0 AND qty_remain >= ?", portion.InstanceId, portion.Qty).
-					Updates(map[string]interface{}{
-						"qty_remain": gorm.Expr("qty_remain - ?", portion.Qty),
-						"status":     gorm.Expr("IF(qty_remain - ? <= 0, 1, 0)", portion.Qty),
-						"updated_at": now,
-					})
-				if updated.Error != nil {
-					return updated.Error
-				}
-				if updated.RowsAffected != 1 {
-					return errors.New("stock changed concurrently; please retry")
+				if err := deductStock(tx, portion.InstanceId, portion.Qty, now); err != nil {
+					return err
 				}
 			}
 		}
