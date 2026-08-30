@@ -2,7 +2,9 @@ package bar
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/forum_server/model"
 )
@@ -148,5 +150,199 @@ func TestMaintainStockRetiresLowFreshnessWithoutErasingQuantity(t *testing.T) {
 	}
 	if batch.Status != 2 || batch.QtyRemain != 5 {
 		t.Fatalf("stale batch not soft-retired: %+v", batch)
+	}
+}
+
+func TestMaintainStockTriggerBoundaries(t *testing.T) {
+	cases := []struct {
+		name        string
+		quantity    float64
+		mode        string
+		enabled     uint8
+		wantRestock int
+	}{
+		{name: "exactly at minimum", quantity: 100, mode: "restock", enabled: 1, wantRestock: 0},
+		{name: "between minimum and maximum", quantity: 200, mode: "restock", enabled: 1, wantRestock: 0},
+		{name: "above maximum", quantity: 600, mode: "restock", enabled: 1, wantRestock: 0},
+		{name: "disabled policy", quantity: 0, mode: "restock", enabled: 0, wantRestock: 0},
+		{name: "none mode", quantity: 0, mode: "none", enabled: 1, wantRestock: 0},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			tx := model.BarDatabase().Begin()
+			if tx.Error != nil {
+				t.Fatal(tx.Error)
+			}
+			defer tx.Rollback()
+			service := NewService(tx, nil)
+			fixedNow := time.Unix(1_788_100_000, 0)
+			service.now = func() time.Time { return fixedNow }
+			if err := tx.Model(&model.BarStockPolicy{}).Where("1 = 1").Update("enabled", 0).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := tx.Model(&model.BarStockPolicy{}).Where("type_id = ?", 6).Updates(map[string]interface{}{"enabled": testCase.enabled, "replenish_mode": testCase.mode, "min_qty": 100, "max_qty": 500}).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := tx.Model(&model.BarIngredientInstance{}).Where("type_id = ?", 6).Updates(map[string]interface{}{"status": 1, "qty_remain": 0}).Error; err != nil {
+				t.Fatal(err)
+			}
+			if testCase.quantity > 0 {
+				batch := model.BarIngredientInstance{Code: fmt.Sprintf("BSYR-BOUNDARY-%.0f", testCase.quantity), TypeId: 6, QtyTotal: testCase.quantity, QtyRemain: testCase.quantity, ProducedAt: fixedNow.Unix(), ExpireAt: fixedNow.Unix() + 86400, Source: "restock", SourceId: 0, Status: 0, CreatedAt: fixedNow.Unix(), UpdatedAt: fixedNow.Unix()}
+				if err := tx.Create(&batch).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			report, err := service.MaintainStock(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if report.Restocks != testCase.wantRestock {
+				t.Fatalf("restocks = %d, want %d", report.Restocks, testCase.wantRestock)
+			}
+		})
+	}
+}
+
+func TestMaintainStockSkipsWhenAnotherInstanceHoldsLock(t *testing.T) {
+	service := NewService(model.BarDatabase(), nil)
+	locked, release, err := service.acquireMaintenanceLock(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !locked {
+		t.Fatal("could not acquire maintenance lock for test")
+	}
+	defer release()
+	report, err := service.MaintainStock(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report != (MaintenanceReport{}) {
+		t.Fatalf("locked maintenance should not run: %+v", report)
+	}
+}
+
+func TestMaintainStockProcessStopsBeforeMaximum(t *testing.T) {
+	tx := model.BarDatabase().Begin()
+	if tx.Error != nil {
+		t.Fatal(tx.Error)
+	}
+	defer tx.Rollback()
+	service := NewService(tx, nil)
+	if err := tx.Model(&model.BarStockPolicy{}).Where("type_id <> ?", 17).Update("enabled", 0).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Model(&model.BarStockPolicy{}).Where("type_id = ?", 17).Updates(map[string]interface{}{"min_qty": 30, "max_qty": 200}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Model(&model.BarIngredientInstance{}).Where("type_id = ?", 17).Updates(map[string]interface{}{"status": 1, "qty_remain": 0}).Error; err != nil {
+		t.Fatal(err)
+	}
+	report, err := service.MaintainStock(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	quantity, err := service.availableQuantity(context.Background(), 17, service.now().Unix())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Processes != 1 || quantity != 120 || quantity > 200 {
+		t.Fatalf("process crossed maximum: report=%+v quantity=%.2f", report, quantity)
+	}
+}
+
+func TestMaintainStockProcessSkipsWhenBaseStockIsMissing(t *testing.T) {
+	tx := model.BarDatabase().Begin()
+	if tx.Error != nil {
+		t.Fatal(tx.Error)
+	}
+	defer tx.Rollback()
+	service := NewService(tx, nil)
+	if err := tx.Model(&model.BarStockPolicy{}).Where("type_id <> ?", 17).Update("enabled", 0).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Model(&model.BarIngredientInstance{}).Where("type_id IN ?", []uint64{11, 17}).Updates(map[string]interface{}{"status": 1, "qty_remain": 0}).Error; err != nil {
+		t.Fatal(err)
+	}
+	report, err := service.MaintainStock(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Processes != 0 {
+		t.Fatalf("process ran without base stock: %+v", report)
+	}
+	quantity, err := service.availableQuantity(context.Background(), 17, service.now().Unix())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if quantity != 0 {
+		t.Fatalf("intermediate appeared without inputs: %.2f", quantity)
+	}
+}
+
+func TestMaintainStockRestocksBaseBeforeProcessingIntermediate(t *testing.T) {
+	tx := model.BarDatabase().Begin()
+	if tx.Error != nil {
+		t.Fatal(tx.Error)
+	}
+	defer tx.Rollback()
+	service := NewService(tx, nil)
+	if err := tx.Model(&model.BarStockPolicy{}).Where("type_id NOT IN ?", []uint64{11, 17}).Update("enabled", 0).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Model(&model.BarIngredientInstance{}).Where("type_id IN ?", []uint64{11, 17}).Updates(map[string]interface{}{"status": 1, "qty_remain": 0}).Error; err != nil {
+		t.Fatal(err)
+	}
+	report, err := service.MaintainStock(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Restocks != 1 || report.Processes != 2 {
+		t.Fatalf("unexpected base-to-intermediate flow: %+v", report)
+	}
+	productQty, err := service.availableQuantity(context.Background(), 17, service.now().Unix())
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseQty, err := service.availableQuantity(context.Background(), 11, service.now().Unix())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if productQty != 240 || baseQty != 400 {
+		t.Fatalf("unexpected quantities after process: lemon=%.2f lemon_juice=%.2f", baseQty, productQty)
+	}
+}
+
+func TestMaintainStockDoesNotRetireAtFreshnessThreshold(t *testing.T) {
+	tx := model.BarDatabase().Begin()
+	if tx.Error != nil {
+		t.Fatal(tx.Error)
+	}
+	defer tx.Rollback()
+	service := NewService(tx, nil)
+	fixedNow := time.Unix(1_788_100_000, 0)
+	service.now = func() time.Time { return fixedNow }
+	if err := tx.Model(&model.BarStockPolicy{}).Where("type_id <> ?", 14).Update("enabled", 0).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Model(&model.BarIngredientInstance{}).Where("type_id = ?", 14).Updates(map[string]interface{}{"status": 1, "qty_remain": 0}).Error; err != nil {
+		t.Fatal(err)
+	}
+	batch := model.BarIngredientInstance{Code: "MINT-MAINT-THRESHOLD", TypeId: 14, QtyTotal: 30, QtyRemain: 30, ProducedAt: fixedNow.Unix(), ExpireAt: fixedNow.Unix() + 86400, Attrs: []byte(`{"freshness":30}`), Source: "restock", SourceId: 0, Status: 0, CreatedAt: fixedNow.Unix(), UpdatedAt: fixedNow.Unix()}
+	if err := tx.Create(&batch).Error; err != nil {
+		t.Fatal(err)
+	}
+	report, err := service.MaintainStock(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Retired != 0 {
+		t.Fatalf("freshness at threshold was retired: %+v", report)
+	}
+	if err := tx.Where("id = ?", batch.Id).Take(&batch).Error; err != nil {
+		t.Fatal(err)
+	}
+	if batch.Status != 0 {
+		t.Fatalf("threshold batch status = %d, want 0", batch.Status)
 	}
 }
