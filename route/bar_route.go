@@ -165,15 +165,19 @@ func barWebSocketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = connection.SetReadDeadline(time.Time{})
-	if !sendWSEvent(connection, "order.accepted", map[string]interface{}{"recipe_id": request.Payload.RecipeId}) {
-		return
-	}
-	if !sendWSEvent(connection, "bartender.say", map[string]interface{}{"text": "哼，单子收到了。等着，别催。"}) {
-		return
-	}
 	result, err := controller.MakeBarDrinkForPerformance(r.Context(), request.Payload)
 	if err != nil {
-		sendWSEvent(connection, "order.failed", map[string]interface{}{"reason": err.Error()})
+		sendWSEvent(connection, "order.failed", wsFailurePayload(err))
+		return
+	}
+	if !sendWSEvent(connection, "order.accepted", map[string]interface{}{
+		"order_id": result.OrderId, "recipe_name": result.RecipeName, "technique": result.Technique,
+	}) {
+		return
+	}
+	if !sendWSEvent(connection, "bartender.say", map[string]interface{}{
+		"text": fmt.Sprintf("哼，%s？算你会挑。等着，别催。", result.RecipeName),
+	}) {
 		return
 	}
 	descriptionReady := make(chan barservice.OrderResult, 1)
@@ -182,12 +186,18 @@ func barWebSocketHandler(w http.ResponseWriter, r *http.Request) {
 		descriptionReady <- current
 	}(result)
 	for _, step := range result.Steps {
+		if !sendWSEvent(connection, "bartender.say", map[string]interface{}{"text": ingredientPerformanceLine(step, result.Trace)}) {
+			return
+		}
 		if !sendWSEvent(connection, "action.start", step) {
 			return
 		}
 		time.Sleep(800 * time.Millisecond)
 	}
 	duration := techniqueDuration(result.Technique)
+	if !sendWSEvent(connection, "bartender.say", map[string]interface{}{"text": techniquePerformanceLine(result.Technique)}) {
+		return
+	}
 	if !sendWSEvent(connection, "action.technique", map[string]interface{}{"technique": result.Technique, "duration_ms": duration}) {
 		return
 	}
@@ -205,6 +215,47 @@ func barWebSocketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sendWSEvent(connection, "order.completed", result)
+}
+
+func wsFailurePayload(err error) map[string]interface{} {
+	payload := map[string]interface{}{"reason": err.Error()}
+	var missing *barservice.MissingError
+	if errors.As(err, &missing) {
+		payload["reason"] = "missing"
+		payload["details"] = missing.Details
+	}
+	return payload
+}
+
+func ingredientPerformanceLine(step barservice.PerformanceStep, trace []barservice.TracePortion) string {
+	line := fmt.Sprintf("先取%s%g%s。", step.TypeName, step.Qty, step.Unit)
+	for _, portion := range trace {
+		if portion.TypeId != step.TypeId || portion.SourceNote == "" || portion.SourceNote == "海浪之歌进货" {
+			continue
+		}
+		note := portion.SourceNote
+		if strings.HasPrefix(note, "岛民娘从") {
+			note = "我从" + strings.TrimPrefix(note, "岛民娘从")
+		} else if strings.HasPrefix(note, "岛民娘在") {
+			note = "我在" + strings.TrimPrefix(note, "岛民娘在")
+		}
+		return line + "这批是" + strings.TrimSuffix(note, "。") + "，算你赶上了。"
+	}
+	return line + "嗯，状态正好。"
+}
+
+func techniquePerformanceLine(technique string) string {
+	lines := map[string]string{
+		"摇和": "抓稳吧台，我要摇了——洒出来可不算我的。",
+		"搅和": "别急，慢慢搅开才不会惊了香气。",
+		"捣压": "让开一点，草本得现捣才肯出味。",
+		"分层": "看好了，手别晃，这层次可不是随便倒出来的。",
+		"兑和": "最后兑在一起，气泡马上就醒了。",
+	}
+	if line := lines[technique]; line != "" {
+		return line
+	}
+	return "最后这一下看着简单，分寸可都在手上。"
 }
 
 func techniqueDuration(technique string) int {

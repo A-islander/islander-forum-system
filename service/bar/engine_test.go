@@ -63,6 +63,10 @@ func TestMakeDrinkAsyncReturnsBeforeDescription(t *testing.T) {
 		t.Fatal("background describer did not start")
 	}
 	close(describer.release)
+	// The service writes on the same transaction used by this integration test.
+	// Give that write ownership of the connection before polling it; database/sql
+	// transactions do not support concurrent use of one driver connection.
+	time.Sleep(100 * time.Millisecond)
 
 	deadline := time.Now().Add(time.Second)
 	for {
