@@ -101,15 +101,17 @@ type DrinkView struct {
 }
 
 type OrderResult struct {
-	OrderId    string             `json:"order_id"`
-	Drink      DrinkView          `json:"drink"`
-	Trace      []TracePortion     `json:"trace"`
-	Steps      []PerformanceStep  `json:"steps,omitempty"`
-	RecipeName string             `json:"-"`
-	Technique  string             `json:"-"`
-	Flavor     FlavorSnapshot     `json:"-"`
-	Appearance AppearanceSnapshot `json:"-"`
-	Mouthfeel  MouthfeelSnapshot  `json:"-"`
+	OrderId            string             `json:"order_id"`
+	Drink              DrinkView          `json:"drink"`
+	Trace              []TracePortion     `json:"trace"`
+	Steps              []PerformanceStep  `json:"steps,omitempty"`
+	DescriptionPending bool               `json:"description_pending"`
+	RecipeName         string             `json:"-"`
+	Technique          string             `json:"-"`
+	Flavor             FlavorSnapshot     `json:"-"`
+	Appearance         AppearanceSnapshot `json:"-"`
+	Mouthfeel          MouthfeelSnapshot  `json:"-"`
+	DescribeInput      DescribeInput      `json:"-"`
 }
 
 type MissingDetail struct {

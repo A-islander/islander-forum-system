@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/forum_server/model"
@@ -23,7 +24,13 @@ func NewService(db *gorm.DB, describer Describer) *Service {
 	return &Service{db: db, describer: describer, now: time.Now}
 }
 
-func NewDefaultService() *Service { return NewService(model.BarDatabase(), nil) }
+func NewDefaultService(describer ...Describer) *Service {
+	var selected Describer
+	if len(describer) > 0 {
+		selected = describer[0]
+	}
+	return NewService(model.BarDatabase(), selected)
+}
 
 func parseRequirement(raw json.RawMessage) map[string][]float64 {
 	result := make(map[string][]float64)
@@ -125,6 +132,10 @@ func (s *Service) allocateItem(tx *gorm.DB, item model.BarRecipeItem, overrideId
 }
 
 func (s *Service) MakeDrink(ctx context.Context, request OrderRequest) (OrderResult, error) {
+	return s.makeDrink(ctx, request, true)
+}
+
+func (s *Service) makeDrink(ctx context.Context, request OrderRequest, enhance bool) (OrderResult, error) {
 	if request.RecipeId == 0 {
 		return OrderResult{}, errors.New("recipe_id is required")
 	}
@@ -186,15 +197,24 @@ func (s *Service) MakeDrink(ctx context.Context, request OrderRequest) (OrderRes
 		flavor, names, stale := computeFlavor(inputs, mappings, nodes)
 		appearance := computeAppearance(inputs, recipe.Technique)
 		mouthfeel := computeMouthfeel(inputs, recipe.Technique)
-		describeInput = DescribeInput{
-			RecipeName: recipe.Name, Flavor: flavor, Appearance: appearance, Mouthfeel: mouthfeel,
-			FlavorNames: names, HasStaleIngredient: stale,
+		describeIngredients := make([]DescribeIngredient, 0, len(inputs))
+		for _, input := range inputs {
+			ingredient := DescribeIngredient{Name: input.typeInfo.Name, Qty: input.item.Qty, Unit: input.typeInfo.Unit}
+			for _, portion := range input.portions {
+				if portion.Freshness != nil && (ingredient.Freshness == nil || *portion.Freshness < *ingredient.Freshness) {
+					freshness := *portion.Freshness
+					ingredient.Freshness = &freshness
+				}
+			}
+			if ingredient.Freshness != nil && *ingredient.Freshness < 30 {
+				ingredient.Condition = "已过最佳状态，会带来陈味"
+			}
+			describeIngredients = append(describeIngredients, ingredient)
 		}
-		// Always persist a fast deterministic description inside the stock
-		// transaction. A future remote describer runs only after commit.
-		description, err := (RuleDescriber{}).Describe(ctx, describeInput)
-		if err != nil {
-			return err
+		describeInput = DescribeInput{
+			RecipeName: recipe.Name, RecipeStory: recipe.Story, Technique: recipe.Technique,
+			CustomerMessage: request.Message, Flavor: flavor, Appearance: appearance, Mouthfeel: mouthfeel,
+			FlavorNames: names, Ingredients: describeIngredients, HasStaleIngredient: stale,
 		}
 
 		inputSnapshots := make([]InputSnapshot, 0, len(inputs)+1)
@@ -220,6 +240,13 @@ func (s *Service) MakeDrink(ctx context.Context, request OrderRequest) (OrderRes
 				}
 				trace = append(trace, traceItem)
 			}
+		}
+		describeInput.Trace = trace
+		// Persist a deterministic description inside the stock transaction. A
+		// remote description may replace it only after the drink is committed.
+		description, err := (RuleDescriber{}).Describe(ctx, describeInput)
+		if err != nil {
+			return err
 		}
 		inputSnapshots = append(inputSnapshots, InputSnapshot{Kind: "technique", Name: recipe.Technique})
 		inputsJSON, err := rawJSON(inputSnapshots)
@@ -249,18 +276,51 @@ func (s *Service) MakeDrink(ctx context.Context, request OrderRequest) (OrderRes
 			return err
 		}
 		result = OrderResult{OrderId: fmt.Sprintf("ORD-%d", drink.Id), Drink: drinkView(drink, recipe, inputSnapshots, flavor, appearance, mouthfeel, names), RecipeName: recipe.Name,
-			Technique: recipe.Technique, Flavor: flavor, Appearance: appearance, Mouthfeel: mouthfeel, Trace: trace, Steps: steps}
+			Technique: recipe.Technique, Flavor: flavor, Appearance: appearance, Mouthfeel: mouthfeel, Trace: trace, Steps: steps, DescribeInput: describeInput}
 		return nil
 	})
-	if err == nil && s.describer != nil {
-		if description, describeErr := s.describer.Describe(ctx, describeInput); describeErr == nil && description != "" {
-			if updateErr := s.db.WithContext(ctx).Model(&model.BarDrink{}).Where("id = ?", result.Drink.Id).
-				Update("description", description).Error; updateErr == nil {
-				result.Drink.Description = description
-			}
-		}
+	if err == nil && enhance {
+		s.EnhanceDescription(ctx, &result)
 	}
 	return result, err
+}
+
+// MakeDrinkForPerformance commits the drink with its rule description and
+// leaves the remote description to the caller so it can overlap with the show.
+func (s *Service) MakeDrinkForPerformance(ctx context.Context, request OrderRequest) (OrderResult, error) {
+	return s.makeDrink(ctx, request, false)
+}
+
+// MakeDrinkAsync returns as soon as the deterministic drink is committed. A
+// remote description is generated outside the request context and replaces the
+// rule description in the same bar_drink row when it succeeds.
+func (s *Service) MakeDrinkAsync(ctx context.Context, request OrderRequest) (OrderResult, error) {
+	result, err := s.makeDrink(ctx, request, false)
+	if err != nil || s.describer == nil {
+		return result, err
+	}
+	result.DescriptionPending = true
+	go func(current OrderResult) {
+		background, cancel := context.WithTimeout(context.Background(), 7*time.Second)
+		defer cancel()
+		s.EnhanceDescription(background, &current)
+	}(result)
+	return result, nil
+}
+
+func (s *Service) EnhanceDescription(ctx context.Context, result *OrderResult) {
+	if s.describer == nil || result == nil || result.Drink.Id == 0 {
+		return
+	}
+	description, err := s.describer.Describe(ctx, result.DescribeInput)
+	if err != nil || strings.TrimSpace(description) == "" {
+		return
+	}
+	description = strings.TrimSpace(description)
+	if updateErr := s.db.WithContext(ctx).Model(&model.BarDrink{}).Where("id = ?", result.Drink.Id).
+		Update("description", description).Error; updateErr == nil {
+		result.Drink.Description = description
+	}
 }
 
 func (s *Service) Menu(ctx context.Context) ([]MenuRecipe, error) {

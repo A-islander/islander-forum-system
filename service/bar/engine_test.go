@@ -27,6 +27,59 @@ func TestRuleDescriber(t *testing.T) {
 	}
 }
 
+type blockingDescriber struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (describer *blockingDescriber) Describe(ctx context.Context, _ DescribeInput) (string, error) {
+	close(describer.started)
+	select {
+	case <-describer.release:
+		return "异步生成的岛民娘上酒文案。", nil
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
+func TestMakeDrinkAsyncReturnsBeforeDescription(t *testing.T) {
+	tx := model.BarDatabase().Begin()
+	if tx.Error != nil {
+		t.Fatal(tx.Error)
+	}
+	defer tx.Rollback()
+
+	describer := &blockingDescriber{started: make(chan struct{}), release: make(chan struct{})}
+	result, err := NewService(tx, describer).MakeDrinkAsync(context.Background(), OrderRequest{RecipeId: 2, OrderedBy: 8848})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.DescriptionPending || result.Drink.Description == "异步生成的岛民娘上酒文案。" {
+		t.Fatalf("HTTP result did not return the pending rule description: %+v", result)
+	}
+	select {
+	case <-describer.started:
+	case <-time.After(time.Second):
+		t.Fatal("background describer did not start")
+	}
+	close(describer.release)
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		var description string
+		if err := tx.Model(&model.BarDrink{}).Select("description").Where("id = ?", result.Drink.Id).Scan(&description).Error; err != nil {
+			t.Fatal(err)
+		}
+		if description == "异步生成的岛民娘上酒文案。" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("asynchronous description was not persisted, got %q", description)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func TestMissingIngredientRollsBackAllDeductions(t *testing.T) {
 	tx := model.BarDatabase().Begin()
 	if tx.Error != nil {

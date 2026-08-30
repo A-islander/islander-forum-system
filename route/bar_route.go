@@ -171,11 +171,16 @@ func barWebSocketHandler(w http.ResponseWriter, r *http.Request) {
 	if !sendWSEvent(connection, "bartender.say", map[string]interface{}{"text": "哼，单子收到了。等着，别催。"}) {
 		return
 	}
-	result, err := controller.MakeBarDrink(r.Context(), request.Payload)
+	result, err := controller.MakeBarDrinkForPerformance(r.Context(), request.Payload)
 	if err != nil {
 		sendWSEvent(connection, "order.failed", map[string]interface{}{"reason": err.Error()})
 		return
 	}
+	descriptionReady := make(chan barservice.OrderResult, 1)
+	go func(current barservice.OrderResult) {
+		controller.EnhanceBarDrinkDescription(r.Context(), &current)
+		descriptionReady <- current
+	}(result)
 	for _, step := range result.Steps {
 		if !sendWSEvent(connection, "action.start", step) {
 			return
@@ -187,7 +192,16 @@ func barWebSocketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	time.Sleep(time.Duration(duration) * time.Millisecond)
-	if !sendWSEvent(connection, "bartender.say", map[string]interface{}{"text": fmt.Sprintf("好了，你的%s。别洒了。", result.RecipeName)}) {
+	select {
+	case enhanced := <-descriptionReady:
+		result = enhanced
+	case <-r.Context().Done():
+	}
+	serveText := result.Drink.Description
+	if serveText == "" {
+		serveText = fmt.Sprintf("好了，你的%s。别洒了。", result.RecipeName)
+	}
+	if !sendWSEvent(connection, "bartender.say", map[string]interface{}{"text": serveText}) {
 		return
 	}
 	sendWSEvent(connection, "order.completed", result)
