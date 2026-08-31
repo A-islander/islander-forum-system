@@ -21,19 +21,90 @@ func registerBarRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/bar/menu", methodMiddleware(http.HandlerFunc(barMenuHandler)))
 	mux.Handle("/api/bar/ingredients", methodMiddleware(http.HandlerFunc(barIngredientsHandler)))
 	mux.Handle("/api/bar/backpack", methodMiddleware(http.HandlerFunc(barBackpackHandler)))
+	mux.Handle("/api/bar/backpack/submit", methodMiddleware(http.HandlerFunc(barBackpackSubmitHandler)))
+	mux.Handle("/api/bar/collect/status", methodMiddleware(http.HandlerFunc(barCollectStatusHandler)))
+	mux.Handle("/api/bar/collect", methodMiddleware(http.HandlerFunc(barCollectHandler)))
 	mux.Handle("/api/bar/order", methodMiddleware(http.HandlerFunc(barOrderHandler)))
 	mux.Handle("/api/bar/drink/", methodMiddleware(http.HandlerFunc(barDrinkHandler)))
 	mux.Handle("/api/bar/trace/", methodMiddleware(http.HandlerFunc(barTraceHandler)))
 	mux.HandleFunc("/ws/bar/order", barWebSocketHandler)
 }
 
+func authenticatedBarUser(w http.ResponseWriter, r *http.Request) (uint64, bool) {
+	userId, ok := authenticateBarToken(r.Header.Get("Authorization"))
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "invalid or missing Authorization token")
+	}
+	return userId, ok
+}
+
+func barCollectStatusHandler(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	userId, ok := authenticatedBarUser(w, r)
+	if !ok {
+		return
+	}
+	status, err := controller.GetBarCollectStatus(r.Context(), userId)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	write(w, status)
+}
+
+func barCollectHandler(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+	userId, ok := authenticatedBarUser(w, r)
+	if !ok {
+		return
+	}
+	result, err := controller.CollectBarItem(r.Context(), userId)
+	if err != nil {
+		var limit *barservice.DailyCollectLimitError
+		if errors.As(err, &limit) {
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"code": http.StatusTooManyRequests,
+				"error": "daily_collect_limit_reached", "daily_limit": limit.Status.DailyLimit,
+				"used_today": limit.Status.UsedToday, "remaining_today": 0, "resets_at": limit.Status.ResetsAt})
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	write(w, result)
+}
+
+func barBackpackSubmitHandler(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+	userId, ok := authenticatedBarUser(w, r)
+	if !ok {
+		return
+	}
+	var request barservice.SubmitBackpackRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := controller.SubmitBarBackpackItem(r.Context(), userId, request)
+	if err != nil {
+		writeBarError(w, err)
+		return
+	}
+	write(w, result)
+}
+
 func barBackpackHandler(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
-	userId, ok := authenticateBarToken(r.Header.Get("Authorization"))
+	userId, ok := authenticatedBarUser(w, r)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "invalid or missing Authorization token")
 		return
 	}
 	items, err := controller.GetBarBackpack(r.Context(), userId)
@@ -105,6 +176,7 @@ func barOrderHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	request.OrderedBy = userId
+	request.OrderedByName = controller.GetUserById(int(userId)).Name
 	result, err := controller.MakeBarDrink(r.Context(), request)
 	if err != nil {
 		writeBarError(w, err)
@@ -224,6 +296,7 @@ func barWebSocketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	request.Payload.OrderedBy = userId
+	request.Payload.OrderedByName = controller.GetUserById(int(userId)).Name
 	_ = connection.SetReadDeadline(time.Time{})
 	result, err := controller.MakeBarDrinkForPerformance(r.Context(), request.Payload)
 	if err != nil {

@@ -32,6 +32,18 @@ func GetBarBackpack(ctx context.Context, userId uint64) ([]barservice.BackpackIt
 	return barService.Backpack(ctx, userId)
 }
 
+func GetBarCollectStatus(ctx context.Context, userId uint64) (barservice.CollectStatus, error) {
+	return barService.CollectStatus(ctx, userId)
+}
+
+func CollectBarItem(ctx context.Context, userId uint64) (barservice.CollectResult, error) {
+	return barService.Collect(ctx, userId)
+}
+
+func SubmitBarBackpackItem(ctx context.Context, userId uint64, request barservice.SubmitBackpackRequest) (barservice.SubmitBackpackResult, error) {
+	return barService.SubmitBackpack(ctx, userId, request)
+}
+
 func MakeBarDrink(ctx context.Context, request barservice.OrderRequest) (barservice.OrderResult, error) {
 	return barService.MakeDrinkAsync(ctx, request)
 }

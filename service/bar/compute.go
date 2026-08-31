@@ -14,11 +14,13 @@ import (
 var mouthfeelKeys = []string{"body", "crisp", "creamy", "effervescent", "heat", "astringent"}
 
 type allocatedInput struct {
-	role      string
-	item      model.BarRecipeItem
-	typeInfo  model.BarIngredientType
-	instances []model.BarIngredientInstance
-	portions  []PortionSnapshot
+	role          string
+	inventory     string
+	item          model.BarRecipeItem
+	typeInfo      model.BarIngredientType
+	instances     []model.BarIngredientInstance
+	userInstances []model.BarUserIngredientInstance
+	portions      []PortionSnapshot
 }
 
 func numberMap(raw json.RawMessage) map[string]float64 {

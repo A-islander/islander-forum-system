@@ -10,19 +10,22 @@ import (
 )
 
 type OrderRequest struct {
-	RecipeId  uint64            `json:"recipe_id"`
-	OrderedBy uint64            `json:"ordered_by"`
-	Overrides map[uint64]uint64 `json:"overrides"`
-	Extras    []ExtraIngredient `json:"extras"`
-	Message   string            `json:"message"`
+	RecipeId      uint64            `json:"recipe_id"`
+	OrderedBy     uint64            `json:"ordered_by"`
+	OrderedByName string            `json:"-"`
+	Overrides     map[uint64]uint64 `json:"overrides"`
+	Extras        []ExtraIngredient `json:"extras"`
+	Message       string            `json:"message"`
 }
 
 type ExtraIngredient struct {
 	TypeId   uint64  `json:"type_id"`
 	Quantity float64 `json:"quantity"`
+	Source   string  `json:"source,omitempty"`
 }
 
 type PortionSnapshot struct {
+	Inventory  string   `json:"inventory,omitempty"`
 	InstanceId uint64   `json:"instance_id"`
 	Code       string   `json:"code"`
 	Qty        float64  `json:"qty"`
@@ -71,6 +74,7 @@ type MouthfeelSnapshot struct {
 
 type TracePortion struct {
 	Role       string  `json:"role,omitempty"`
+	Inventory  string  `json:"inventory,omitempty"`
 	TypeId     uint64  `json:"type_id"`
 	TypeName   string  `json:"type"`
 	Unit       string  `json:"unit"`
@@ -96,6 +100,7 @@ type DrinkView struct {
 	Id                 uint64             `json:"id"`
 	RecipeId           uint64             `json:"recipe_id"`
 	RecipeName         string             `json:"recipe_name"`
+	DrinkName          string             `json:"drink_name"`
 	Technique          string             `json:"technique"`
 	OrderedBy          uint64             `json:"ordered_by"`
 	MadeBy             uint64             `json:"made_by"`
@@ -187,6 +192,57 @@ type BackpackItem struct {
 	EarliestExpireAt int64   `json:"earliest_expire_at"`
 }
 
+type CollectLocationView struct {
+	Id          uint64 `json:"id"`
+	Code        string `json:"code"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type CollectedItemView struct {
+	InstanceId uint64                 `json:"instance_id"`
+	TypeId     uint64                 `json:"type_id"`
+	Code       string                 `json:"code"`
+	Name       string                 `json:"name"`
+	Quantity   float64                `json:"quantity"`
+	Unit       string                 `json:"unit"`
+	Attrs      map[string]interface{} `json:"attrs"`
+	ExpireAt   int64                  `json:"expire_at"`
+}
+
+type CollectStatus struct {
+	DailyLimit     int   `json:"daily_limit"`
+	UsedToday      int   `json:"used_today"`
+	RemainingToday int   `json:"remaining_today"`
+	ResetsAt       int64 `json:"resets_at"`
+}
+
+type CollectResult struct {
+	Location CollectLocationView `json:"location"`
+	Item     CollectedItemView   `json:"item"`
+	CollectStatus
+}
+
+type DailyCollectLimitError struct {
+	Status CollectStatus
+}
+
+func (e *DailyCollectLimitError) Error() string { return "daily collect limit reached" }
+
+type SubmitBackpackRequest struct {
+	TypeId   uint64  `json:"type_id"`
+	Quantity float64 `json:"quantity"`
+}
+
+type SubmitBackpackResult struct {
+	TypeId               uint64  `json:"type_id"`
+	Name                 string  `json:"name"`
+	Quantity             float64 `json:"quantity"`
+	Unit                 string  `json:"unit"`
+	PublicInstanceId     uint64  `json:"public_instance_id"`
+	BackpackQtyRemaining float64 `json:"backpack_qty_remaining"`
+}
+
 type RestockRequest struct {
 	TypeId     uint64                 `json:"type_id"`
 	Quantity   float64                `json:"quantity"`
@@ -203,10 +259,12 @@ type DrinkDetail struct {
 }
 
 type TraceNode struct {
-	Instance model.BarIngredientInstance `json:"instance"`
-	TypeName string                      `json:"type_name"`
-	Restock  *model.BarRestockLog        `json:"restock,omitempty"`
-	Inputs   []TraceNode                 `json:"inputs,omitempty"`
+	Instance  model.BarIngredientInstance `json:"instance"`
+	Inventory string                      `json:"inventory,omitempty"`
+	OwnerUid  uint64                      `json:"owner_uid,omitempty"`
+	TypeName  string                      `json:"type_name"`
+	Restock   *model.BarRestockLog        `json:"restock,omitempty"`
+	Inputs    []TraceNode                 `json:"inputs,omitempty"`
 }
 
 type DrinkTrace struct {
@@ -237,7 +295,11 @@ func flavorView(snapshot FlavorSnapshot, names map[uint64]string) FlavorView {
 
 func drinkView(drink model.BarDrink, recipe model.BarRecipe, inputs []InputSnapshot, flavor FlavorSnapshot,
 	appearance AppearanceSnapshot, mouthfeel MouthfeelSnapshot, names map[uint64]string) DrinkView {
-	return DrinkView{Id: drink.Id, RecipeId: drink.RecipeId, RecipeName: recipe.Name, Technique: recipe.Technique,
+	drinkName := drink.Name
+	if drinkName == "" {
+		drinkName = recipe.Name
+	}
+	return DrinkView{Id: drink.Id, RecipeId: drink.RecipeId, RecipeName: recipe.Name, DrinkName: drinkName, Technique: recipe.Technique,
 		OrderedBy: drink.OrderedBy, MadeBy: drink.MadeBy, Message: drink.Message, InputsSnapshot: inputs,
 		FlavorSnapshot: flavorView(flavor, names), AppearanceSnapshot: appearance, MouthfeelSnapshot: mouthfeel,
 		Description: drink.Description, ConfigVersion: drink.ConfigVersion, CreatedAt: drink.CreatedAt}

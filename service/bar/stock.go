@@ -158,7 +158,13 @@ func (s *Service) Trace(ctx context.Context, drinkId uint64) (DrinkTrace, error)
 			continue
 		}
 		for _, portion := range input.Portions {
-			node, err := s.traceInstance(ctx, portion.InstanceId, map[uint64]bool{})
+			var node TraceNode
+			var err error
+			if portion.Inventory == "backpack" {
+				node, err = s.traceUserInstance(ctx, portion.InstanceId)
+			} else {
+				node, err = s.traceInstance(ctx, portion.InstanceId, map[uint64]bool{})
+			}
 			if err != nil {
 				return DrinkTrace{}, err
 			}
@@ -166,6 +172,21 @@ func (s *Service) Trace(ctx context.Context, drinkId uint64) (DrinkTrace, error)
 		}
 	}
 	return result, nil
+}
+
+func (s *Service) traceUserInstance(ctx context.Context, instanceId uint64) (TraceNode, error) {
+	var instance model.BarUserIngredientInstance
+	if err := s.db.WithContext(ctx).Where("id = ?", instanceId).Take(&instance).Error; err != nil {
+		return TraceNode{}, err
+	}
+	var ingredientType model.BarIngredientType
+	if err := s.db.WithContext(ctx).Where("id = ?", instance.TypeId).Take(&ingredientType).Error; err != nil {
+		return TraceNode{}, err
+	}
+	publicView := userAsBarInstance(instance)
+	publicView.Code = fmt.Sprintf("%s-U-%d", ingredientType.Code, instance.Id)
+	node := TraceNode{Instance: publicView, Inventory: "backpack", OwnerUid: instance.UserId, TypeName: ingredientType.Name, Inputs: []TraceNode{}}
+	return node, nil
 }
 
 func (s *Service) traceInstance(ctx context.Context, instanceId uint64, seen map[uint64]bool) (TraceNode, error) {

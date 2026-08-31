@@ -15,13 +15,14 @@ import (
 )
 
 type Service struct {
-	db        *gorm.DB
-	describer Describer
-	now       func() time.Time
+	db         *gorm.DB
+	describer  Describer
+	now        func() time.Time
+	randomIntn func(int) (int, error)
 }
 
 func NewService(db *gorm.DB, describer Describer) *Service {
-	return &Service{db: db, describer: describer, now: time.Now}
+	return &Service{db: db, describer: describer, now: time.Now, randomIntn: defaultRandomIntn}
 }
 
 func NewDefaultService(describer ...Describer) *Service {
@@ -101,7 +102,7 @@ func (s *Service) allocateItem(tx *gorm.DB, item model.BarRecipeItem, overrideId
 	}
 
 	need := item.Qty
-	input := allocatedInput{item: item, typeInfo: ingredientType}
+	input := allocatedInput{inventory: "bar", item: item, typeInfo: ingredientType}
 	requirement := parseRequirement(item.Requirement)
 	for _, candidate := range candidates {
 		if !matchesRequirement(candidate, ingredientType, requirement, now) {
@@ -131,6 +132,51 @@ func (s *Service) allocateItem(tx *gorm.DB, item model.BarRecipeItem, overrideId
 	return input, nil, nil
 }
 
+func userAsBarInstance(instance model.BarUserIngredientInstance) model.BarIngredientInstance {
+	return model.BarIngredientInstance{Id: instance.Id, TypeId: instance.TypeId, QtyTotal: instance.QtyTotal,
+		QtyRemain: instance.QtyRemain, ProducedAt: instance.ProducedAt, ExpireAt: instance.ExpireAt,
+		Attrs: instance.Attrs, Source: instance.Source, SourceId: instance.SourceId, Status: instance.Status,
+		CreatedAt: instance.CreatedAt, UpdatedAt: instance.UpdatedAt}
+}
+
+func (s *Service) allocateUserItem(tx *gorm.DB, item model.BarRecipeItem, userId uint64, now int64) (allocatedInput, *MissingDetail, error) {
+	var ingredientType model.BarIngredientType
+	if err := tx.Where("id = ? AND status = 0 AND mixable = 1", item.TypeId).Take(&ingredientType).Error; err != nil {
+		return allocatedInput{}, nil, err
+	}
+	var candidates []model.BarUserIngredientInstance
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("user_id = ? AND type_id = ? AND status = 0 AND qty_remain > 0 AND expire_at > ?", userId, item.TypeId, now).
+		Order("expire_at ASC, id ASC").Find(&candidates).Error; err != nil {
+		return allocatedInput{}, nil, err
+	}
+	need := item.Qty
+	input := allocatedInput{inventory: "backpack", item: item, typeInfo: ingredientType}
+	for _, candidate := range candidates {
+		take := math.Min(candidate.QtyRemain, need)
+		if take <= 0 {
+			continue
+		}
+		attrs := effectiveAttributes(userAsBarInstance(candidate), ingredientType, now)
+		portion := PortionSnapshot{Inventory: "backpack", InstanceId: candidate.Id,
+			Code: fmt.Sprintf("%s-U-%d", ingredientType.Code, candidate.Id), Qty: round(take, 2)}
+		if freshness, ok := attrs["freshness"]; ok {
+			value := freshness
+			portion.Freshness = &value
+		}
+		input.userInstances = append(input.userInstances, candidate)
+		input.portions = append(input.portions, portion)
+		need -= take
+		if need <= .000001 {
+			break
+		}
+	}
+	if need > .000001 {
+		return allocatedInput{}, &MissingDetail{TypeId: item.TypeId, Name: ingredientType.Name, Need: item.Qty, Shortage: round(need, 2)}, nil
+	}
+	return input, nil, nil
+}
+
 func deductStock(tx *gorm.DB, instanceId uint64, quantity float64, now int64) error {
 	result := tx.Exec(`
 		UPDATE bar_ingredient_instance
@@ -150,7 +196,19 @@ func deductStock(tx *gorm.DB, instanceId uint64, quantity float64, now int64) er
 
 func deductInput(tx *gorm.DB, input allocatedInput, now int64) error {
 	for _, portion := range input.portions {
-		if err := deductStock(tx, portion.InstanceId, portion.Qty, now); err != nil {
+		var err error
+		if input.inventory == "backpack" {
+			result := tx.Exec(`UPDATE bar_user_ingredient_instance
+				SET status=IF(qty_remain-?<=0,1,0), qty_remain=qty_remain-?, updated_at=?
+				WHERE id=? AND status=0 AND qty_remain>=?`, portion.Qty, portion.Qty, now, portion.InstanceId, portion.Qty)
+			err = result.Error
+			if err == nil && result.RowsAffected != 1 {
+				err = errors.New("backpack stock changed concurrently; please retry")
+			}
+		} else {
+			err = deductStock(tx, portion.InstanceId, portion.Qty, now)
+		}
+		if err != nil {
 			return err
 		}
 	}
@@ -167,6 +225,9 @@ func validateExtras(extras []ExtraIngredient) error {
 	}
 	seen := make(map[uint64]bool, len(extras))
 	for _, extra := range extras {
+		if extra.Source != "" && extra.Source != "bar" && extra.Source != "backpack" {
+			return fmt.Errorf("unsupported extra ingredient source %q", extra.Source)
+		}
 		if extra.TypeId == 0 || extra.Quantity <= 0 || math.IsNaN(extra.Quantity) || math.IsInf(extra.Quantity, 0) {
 			return errors.New("each extra ingredient requires type_id and positive quantity")
 		}
@@ -235,7 +296,13 @@ func (s *Service) makeDrink(ctx context.Context, request OrderRequest, enhance b
 			if err != nil {
 				return err
 			}
-			input, detail, err := s.allocateItem(tx, item, 0, now)
+			var input allocatedInput
+			var detail *MissingDetail
+			if extra.Source == "backpack" {
+				input, detail, err = s.allocateUserItem(tx, item, request.OrderedBy, now)
+			} else {
+				input, detail, err = s.allocateItem(tx, item, 0, now)
+			}
 			if err != nil {
 				return err
 			}
@@ -264,6 +331,24 @@ func (s *Service) makeDrink(ctx context.Context, request OrderRequest, enhance b
 		flavor, names, stale := computeFlavor(inputs, mappings, nodes)
 		appearance := computeAppearance(inputs, recipe.Technique)
 		mouthfeel := computeMouthfeel(inputs, recipe.Technique)
+		drinkName := recipe.Name
+		if len(request.Extras) > 0 {
+			parts := []string{recipe.Name}
+			for _, input := range inputs {
+				if input.role == "extra" {
+					parts = append(parts, input.typeInfo.Name)
+				}
+			}
+			ownerName := strings.TrimSpace(request.OrderedByName)
+			if ownerName == "" {
+				ownerName = fmt.Sprintf("岛民%d", request.OrderedBy)
+			}
+			parts = append(parts, ownerName)
+			drinkName = strings.Join(parts, "-")
+			if runes := []rune(drinkName); len(runes) > 128 {
+				drinkName = string(runes[:128])
+			}
+		}
 		describeIngredients := make([]DescribeIngredient, 0, len(inputs))
 		for _, input := range inputs {
 			ingredient := DescribeIngredient{Name: input.typeInfo.Name, Qty: input.item.Qty, Unit: input.typeInfo.Unit, Role: input.role}
@@ -279,7 +364,7 @@ func (s *Service) makeDrink(ctx context.Context, request OrderRequest, enhance b
 			describeIngredients = append(describeIngredients, ingredient)
 		}
 		describeInput = DescribeInput{
-			RecipeName: recipe.Name, RecipeStory: recipe.Story, Technique: recipe.Technique,
+			RecipeName: drinkName, RecipeStory: recipe.Story, Technique: recipe.Technique,
 			CustomerMessage: request.Message, Flavor: flavor, Appearance: appearance, Mouthfeel: mouthfeel,
 			FlavorNames: names, Ingredients: describeIngredients, HasStaleIngredient: stale,
 		}
@@ -302,8 +387,25 @@ func (s *Service) makeDrink(ctx context.Context, request OrderRequest, enhance b
 						break
 					}
 				}
-				traceItem := TracePortion{Role: input.role, TypeId: input.item.TypeId, TypeName: input.typeInfo.Name, Unit: input.typeInfo.Unit, InstanceId: portion.InstanceId, Code: portion.Code, Qty: portion.Qty, Source: instance.Source, SourceId: instance.SourceId}
-				if instance.Source == "restock" {
+				traceItem := TracePortion{Role: input.role, Inventory: input.inventory, TypeId: input.item.TypeId, TypeName: input.typeInfo.Name, Unit: input.typeInfo.Unit, InstanceId: portion.InstanceId, Code: portion.Code, Qty: portion.Qty}
+				if input.inventory == "backpack" {
+					for _, candidate := range input.userInstances {
+						if candidate.Id != portion.InstanceId {
+							continue
+						}
+						traceItem.Source, traceItem.SourceId = candidate.Source, candidate.SourceId
+						if candidate.Source == "collect" {
+							var row struct{ LocationName string }
+							_ = tx.Table("bar_collect_log AS l").Select("p.name AS location_name").
+								Joins("JOIN bar_collect_location AS p ON p.id=l.location_id").Where("l.id=?", candidate.SourceId).Scan(&row).Error
+							traceItem.SourceNote = row.LocationName + "搜集"
+						}
+						break
+					}
+				} else {
+					traceItem.Source, traceItem.SourceId = instance.Source, instance.SourceId
+				}
+				if input.inventory != "backpack" && instance.Source == "restock" {
 					var log model.BarRestockLog
 					if err := tx.Where("id = ?", instance.SourceId).Take(&log).Error; err == nil {
 						traceItem.SourceNote = log.Note
@@ -336,7 +438,7 @@ func (s *Service) makeDrink(ctx context.Context, request OrderRequest, enhance b
 		if err != nil {
 			return err
 		}
-		drink := model.BarDrink{RecipeId: recipe.Id, OrderedBy: request.OrderedBy, MadeBy: 0, Message: request.Message,
+		drink := model.BarDrink{RecipeId: recipe.Id, OrderedBy: request.OrderedBy, MadeBy: 0, Name: drinkName, Message: request.Message,
 			InputsSnapshot: inputsJSON, FlavorSnapshot: flavorJSON, AppearanceSnapshot: appearanceJSON,
 			MouthfeelSnapshot: mouthfeelJSON, Description: description, ConfigVersion: 1, CreatedAt: now}
 		if err := tx.Create(&drink).Error; err != nil {

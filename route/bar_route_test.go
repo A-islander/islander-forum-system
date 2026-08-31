@@ -226,6 +226,36 @@ func TestBarBackpackRequiresAuthorization(t *testing.T) {
 	}
 }
 
+func TestBarCollectionAndSubmitRequireAuthorization(t *testing.T) {
+	tests := []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{method: http.MethodGet, path: "/api/bar/collect/status"},
+		{method: http.MethodPost, path: "/api/bar/collect"},
+		{method: http.MethodPost, path: "/api/bar/backpack/submit", body: `{"type_id":14,"quantity":1}`},
+	}
+	for _, test := range tests {
+		t.Run(test.path, func(t *testing.T) {
+			request := httptest.NewRequest(test.method, test.path, strings.NewReader(test.body))
+			response := httptest.NewRecorder()
+			mux := http.NewServeMux()
+			registerBarRoutes(mux)
+			mux.ServeHTTP(response, request)
+			var payload struct {
+				Code int `json:"code"`
+			}
+			if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload.Code != http.StatusUnauthorized {
+				t.Fatalf("code=%d body=%s", payload.Code, response.Body.String())
+			}
+		})
+	}
+}
+
 func TestBarBackpackUsesAuthenticatedUser(t *testing.T) {
 	originalResolver := resolveBarUserId
 	resolveBarUserId = func(token string) (uint64, error) {

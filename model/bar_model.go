@@ -94,6 +94,60 @@ type BarUserIngredientInstance struct {
 
 func (BarUserIngredientInstance) TableName() string { return "bar_user_ingredient_instance" }
 
+type BarCollectLocation struct {
+	Id          uint64 `gorm:"column:id;primaryKey;autoIncrement:true;not null" json:"id"`
+	Code        string `gorm:"column:code;type:varchar(32);not null;uniqueIndex:uk_code" json:"code"`
+	Name        string `gorm:"column:name;type:varchar(64);not null;uniqueIndex:uk_name" json:"name"`
+	Description string `gorm:"column:description;type:varchar(255);not null;default:''" json:"description"`
+	Weight      uint   `gorm:"column:weight;type:int unsigned;not null;default:1" json:"weight"`
+	Status      uint8  `gorm:"column:status;type:tinyint unsigned;not null;default:0;index:idx_status" json:"status"`
+	CreatedAt   int64  `gorm:"column:created_at;type:bigint;not null" json:"created_at"`
+	UpdatedAt   int64  `gorm:"column:updated_at;type:bigint;not null" json:"updated_at"`
+}
+
+func (BarCollectLocation) TableName() string { return "bar_collect_location" }
+
+type BarCollectLoot struct {
+	Id            uint64          `gorm:"column:id;primaryKey;autoIncrement:true;not null" json:"id"`
+	LocationId    uint64          `gorm:"column:location_id;type:bigint unsigned;not null;uniqueIndex:uk_location_type,priority:1;index:idx_location_status,priority:1" json:"location_id"`
+	TypeId        uint64          `gorm:"column:type_id;type:bigint unsigned;not null;uniqueIndex:uk_location_type,priority:2;index:idx_type" json:"type_id"`
+	Weight        uint            `gorm:"column:weight;type:int unsigned;not null;default:1" json:"weight"`
+	MinQty        float64         `gorm:"column:min_qty;type:decimal(10,2);not null" json:"min_qty"`
+	MaxQty        float64         `gorm:"column:max_qty;type:decimal(10,2);not null" json:"max_qty"`
+	AttrsRule     json.RawMessage `gorm:"column:attrs_rule;type:json;default:null" json:"attrs_rule"`
+	ShelfLifeDays *uint           `gorm:"column:shelf_life_days;type:int unsigned;default:null" json:"shelf_life_days"`
+	Status        uint8           `gorm:"column:status;type:tinyint unsigned;not null;default:0;index:idx_location_status,priority:2" json:"status"`
+	CreatedAt     int64           `gorm:"column:created_at;type:bigint;not null" json:"created_at"`
+	UpdatedAt     int64           `gorm:"column:updated_at;type:bigint;not null" json:"updated_at"`
+}
+
+func (BarCollectLoot) TableName() string { return "bar_collect_loot" }
+
+type BarCollectDaily struct {
+	UserId    uint64 `gorm:"column:user_id;type:bigint unsigned;primaryKey;not null" json:"user_id"`
+	DayKey    uint   `gorm:"column:day_key;type:int unsigned;primaryKey;not null" json:"day_key"`
+	UsedCount uint8  `gorm:"column:used_count;type:tinyint unsigned;not null;default:0" json:"used_count"`
+	CreatedAt int64  `gorm:"column:created_at;type:bigint;not null" json:"created_at"`
+	UpdatedAt int64  `gorm:"column:updated_at;type:bigint;not null" json:"updated_at"`
+}
+
+func (BarCollectDaily) TableName() string { return "bar_collect_daily" }
+
+type BarCollectLog struct {
+	Id         uint64          `gorm:"column:id;primaryKey;autoIncrement:true;not null" json:"id"`
+	UserId     uint64          `gorm:"column:user_id;type:bigint unsigned;not null;uniqueIndex:uk_user_day_seq,priority:1;index:idx_user_time,priority:1" json:"user_id"`
+	DayKey     uint            `gorm:"column:day_key;type:int unsigned;not null;uniqueIndex:uk_user_day_seq,priority:2" json:"day_key"`
+	DailySeq   uint8           `gorm:"column:daily_seq;type:tinyint unsigned;not null;uniqueIndex:uk_user_day_seq,priority:3" json:"daily_seq"`
+	LocationId uint64          `gorm:"column:location_id;type:bigint unsigned;not null;index:idx_location_time,priority:1" json:"location_id"`
+	TypeId     uint64          `gorm:"column:type_id;type:bigint unsigned;not null;index:idx_type_time,priority:1" json:"type_id"`
+	Quantity   float64         `gorm:"column:quantity;type:decimal(10,2);not null" json:"quantity"`
+	Attrs      json.RawMessage `gorm:"column:attrs;type:json;default:null" json:"attrs"`
+	InstanceId uint64          `gorm:"column:instance_id;type:bigint unsigned;not null;default:0" json:"instance_id"`
+	CreatedAt  int64           `gorm:"column:created_at;type:bigint;not null;index:idx_user_time,priority:2;index:idx_location_time,priority:2;index:idx_type_time,priority:2" json:"created_at"`
+}
+
+func (BarCollectLog) TableName() string { return "bar_collect_log" }
+
 type BarRestockLog struct {
 	Id         uint64          `gorm:"column:id;primaryKey;autoIncrement:true;not null" json:"id"`
 	TypeId     uint64          `gorm:"column:type_id;type:bigint unsigned;not null;index:idx_type_time,priority:1" json:"type_id"`
@@ -181,6 +235,7 @@ type BarDrink struct {
 	RecipeId           uint64          `gorm:"column:recipe_id;type:bigint unsigned;not null;index:idx_recipe_time,priority:1" json:"recipe_id"`
 	OrderedBy          uint64          `gorm:"column:ordered_by;type:bigint unsigned;not null;index:idx_ordered_by,priority:1" json:"ordered_by"`
 	MadeBy             uint64          `gorm:"column:made_by;type:bigint unsigned;not null;default:0" json:"made_by"`
+	Name               string          `gorm:"column:name;type:varchar(128);not null;default:''" json:"name"`
 	Message            string          `gorm:"column:message;type:varchar(255);not null;default:''" json:"message"`
 	InputsSnapshot     json.RawMessage `gorm:"column:inputs_snapshot;type:json;not null" json:"inputs_snapshot"`
 	FlavorSnapshot     json.RawMessage `gorm:"column:flavor_snapshot;type:json;default:null" json:"flavor_snapshot"`
@@ -203,6 +258,10 @@ func BarModels() []interface{} {
 		&BarIngredientFlavor{},
 		&BarIngredientInstance{},
 		&BarUserIngredientInstance{},
+		&BarCollectLocation{},
+		&BarCollectLoot{},
+		&BarCollectDaily{},
+		&BarCollectLog{},
 		&BarRestockLog{},
 		&BarProcess{},
 		&BarProcessLog{},
