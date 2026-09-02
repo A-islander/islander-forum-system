@@ -441,6 +441,9 @@ func performanceCueDuration(stage, text string, scale float64) int {
 	case "opening":
 		baseMs = 2500 + runeCount*100
 		minimumMs, maximumMs = 4000, 8000
+	case "ingredient":
+		baseMs = 5000 + runeCount*180
+		minimumMs, maximumMs = 10000, 15000
 	case "serving":
 		baseMs = 5000 + runeCount*180
 		minimumMs, maximumMs = 10000, 20000

@@ -183,8 +183,8 @@ func TestBarWebSocketPerformance(t *testing.T) {
 	if accepted.OrderId == "" || accepted.RecipeName != "海角黄昏" || accepted.Technique != "摇和" || accepted.TimeScale != 0.25 {
 		t.Fatalf("unexpected accepted payload: %+v", accepted)
 	}
-	if actionDuration != 6000 {
-		t.Fatalf("action duration = %d, want 6000", actionDuration)
+	if actionDuration != 2500 {
+		t.Fatalf("action duration = %d, want 2500", actionDuration)
 	}
 	if actionLines != 3 {
 		t.Fatalf("action lines = %d, want 3", actionLines)
@@ -217,17 +217,21 @@ func TestBarWebSocketPerformance(t *testing.T) {
 	}
 }
 
-func TestDialogueDurationUsesShortOpeningAndLongActions(t *testing.T) {
+func TestDialogueDurationUsesShortDisplayAndLongProcessing(t *testing.T) {
 	short := performanceCueDuration("ingredient", "海浪之歌。", 1)
 	long := performanceCueDuration("ingredient", strings.Repeat("海风", 30), 1)
-	if short != 24000 {
-		t.Fatalf("short dialogue duration=%d, want 24000", short)
+	if short != 10000 {
+		t.Fatalf("short ingredient duration=%d, want 10000", short)
 	}
-	if long != 36000 {
-		t.Fatalf("long dialogue duration=%d, want 36000", long)
+	if long != 15000 {
+		t.Fatalf("long ingredient duration=%d, want 15000", long)
 	}
-	if performanceCueDuration("ingredient", "海浪之歌。", 2) != 48000 {
+	if performanceCueDuration("ingredient", "海浪之歌。", 2) != 20000 {
 		t.Fatal("dialogue scale was not applied")
+	}
+	technique := performanceCueDuration("technique", strings.Repeat("海风", 20), 1)
+	if technique != 30000 {
+		t.Fatalf("technique duration=%d, want 30000", technique)
 	}
 	opening := performanceCueDuration("opening", strings.Repeat("海风", 20), 1)
 	serving := performanceCueDuration("serving", strings.Repeat("海风", 40), 1)
