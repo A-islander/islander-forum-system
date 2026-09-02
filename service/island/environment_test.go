@@ -67,6 +67,22 @@ func TestBuildAlertsSplitsWatchAndWarning(t *testing.T) {
 	}
 }
 
+func TestBusinessHoursUseViewerLocalTime(t *testing.T) {
+	hours := defaultBusinessHours()
+	if hours.TimezoneMode != "viewer_local" || hours.OpenTime != "18:00" || hours.CloseTime != "02:00" || !hours.CrossesMidnight {
+		t.Fatalf("unexpected default business hours: %+v", hours)
+	}
+	if hours.BackendEnforced || hours.OffHoursMode != "stocking" {
+		t.Fatalf("unexpected business policy: %+v", hours)
+	}
+	if _, ok := validClock("8:00"); ok {
+		t.Fatal("non-padded clock should be rejected")
+	}
+	if value, ok := validClock("08:30"); !ok || value != "08:30" {
+		t.Fatalf("valid clock rejected: value=%q ok=%v", value, ok)
+	}
+}
+
 func TestMaintainTimelineIsIdempotentAndPreservesManualSlot(t *testing.T) {
 	user, password, address := os.Getenv("ISLANDER_DB_USER"), os.Getenv("ISLANDER_DB_PASSWORD"), os.Getenv("ISLANDER_DB_ADDR")
 	if user == "" || address == "" {
@@ -128,5 +144,8 @@ func TestMaintainTimelineIsIdempotentAndPreservesManualSlot(t *testing.T) {
 	}
 	if environment.Time.Timezone != "Asia/Hong_Kong" || environment.Time.ServerTime != fixedNow.Unix() || len(environment.Weather.Hourly) != 25 {
 		t.Fatalf("unexpected environment response: time=%+v hourly=%d", environment.Time, len(environment.Weather.Hourly))
+	}
+	if environment.BarBusinessHours.TimezoneMode != "viewer_local" || environment.BarBusinessHours.BackendEnforced {
+		t.Fatalf("unexpected business hours response: %+v", environment.BarBusinessHours)
 	}
 }
