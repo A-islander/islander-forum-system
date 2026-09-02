@@ -8,7 +8,9 @@ import (
 	"hash/fnv"
 	"math"
 	"math/rand"
+	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/forum_server/model"
@@ -21,8 +23,19 @@ const generatorVersion = 1
 var islandLocation = loadIslandLocation()
 
 type Service struct {
-	db  *gorm.DB
-	now func() time.Time
+	db            *gorm.DB
+	now           func() time.Time
+	businessHours BusinessHours
+}
+
+type BusinessHours struct {
+	VenueCode       string `json:"venue_code"`
+	TimezoneMode    string `json:"timezone_mode"`
+	OpenTime        string `json:"open_time"`
+	CloseTime       string `json:"close_time"`
+	CrossesMidnight bool   `json:"crosses_midnight"`
+	BackendEnforced bool   `json:"backend_enforced"`
+	OffHoursMode    string `json:"off_hours_mode"`
 }
 
 type Season struct {
@@ -82,7 +95,8 @@ type Environment struct {
 		Season Season          `json:"season"`
 		Events []CalendarEvent `json:"events"`
 	} `json:"calendar"`
-	Weather struct {
+	BarBusinessHours BusinessHours `json:"bar_business_hours"`
+	Weather          struct {
 		Current            Weather        `json:"current"`
 		Next               Weather        `json:"next"`
 		TransitionProgress float64        `json:"transition_progress"`
@@ -110,8 +124,56 @@ type generationContext struct {
 	EventCodes    []string           `json:"event_codes,omitempty"`
 }
 
-func NewService(db *gorm.DB) *Service { return &Service{db: db, now: time.Now} }
-func NewDefaultService() *Service     { return NewService(model.IslandDatabase()) }
+func NewService(db *gorm.DB) *Service {
+	return &Service{db: db, now: time.Now, businessHours: defaultBusinessHours()}
+}
+
+func NewDefaultService() *Service {
+	service := NewService(model.IslandDatabase())
+	service.businessHours = businessHoursFromEnv()
+	return service
+}
+
+func defaultBusinessHours() BusinessHours {
+	return BusinessHours{
+		VenueCode:       "wave_song_bar",
+		TimezoneMode:    "viewer_local",
+		OpenTime:        "18:00",
+		CloseTime:       "02:00",
+		CrossesMidnight: true,
+		BackendEnforced: false,
+		OffHoursMode:    "stocking",
+	}
+}
+
+func businessHoursFromEnv() BusinessHours {
+	hours := defaultBusinessHours()
+	if value, ok := validClock(os.Getenv("ISLAND_BAR_OPEN_TIME")); ok {
+		hours.OpenTime = value
+	}
+	if value, ok := validClock(os.Getenv("ISLAND_BAR_CLOSE_TIME")); ok {
+		hours.CloseTime = value
+	}
+	hours.CrossesMidnight = clockMinutes(hours.CloseTime) <= clockMinutes(hours.OpenTime)
+	return hours
+}
+
+func validClock(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", false
+	}
+	parsed, err := time.Parse("15:04", value)
+	if err != nil || parsed.Format("15:04") != value {
+		return "", false
+	}
+	return value, true
+}
+
+func clockMinutes(value string) int {
+	parsed, _ := time.Parse("15:04", value)
+	return parsed.Hour()*60 + parsed.Minute()
+}
 
 func loadIslandLocation() *time.Location {
 	loc, err := time.LoadLocation("Asia/Hong_Kong")
@@ -519,6 +581,7 @@ func (s *Service) Environment(ctx context.Context) (Environment, error) {
 	response.Time.ServerTime = now.Unix()
 	response.Time.Timezone = "Asia/Hong_Kong"
 	response.Time.IslandDate = now.In(islandLocation).Format("2006-01-02")
+	response.BarBusinessHours = s.businessHours
 	season, _ := SeasonAt(now)
 	response.Calendar.Season = season
 	events, err := s.eventsAt(ctx, now.Unix())
