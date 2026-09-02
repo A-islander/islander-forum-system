@@ -52,7 +52,9 @@ func Init() *http.ServeMux {
 	httpHelper.SetMuxHandle(forumServer, userHandleArr)
 
 	registerBarRoutes(forumServer)
+	registerIslandRoutes(forumServer)
 	controller.StartBarStockMaintenance(context.Background())
+	controller.StartIslandEnvironmentMaintenance(context.Background())
 
 	fmt.Printf("listen to port %s", port)
 	http.ListenAndServe(port, forumServer)
