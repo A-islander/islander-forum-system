@@ -23,19 +23,34 @@ const generatorVersion = 1
 var islandLocation = loadIslandLocation()
 
 type Service struct {
-	db            *gorm.DB
-	now           func() time.Time
-	businessHours BusinessHours
+	db          *gorm.DB
+	now         func() time.Time
+	barSchedule barScheduleConfig
 }
 
-type BusinessHours struct {
-	VenueCode       string `json:"venue_code"`
-	TimezoneMode    string `json:"timezone_mode"`
-	OpenTime        string `json:"open_time"`
-	CloseTime       string `json:"close_time"`
-	CrossesMidnight bool   `json:"crosses_midnight"`
-	BackendEnforced bool   `json:"backend_enforced"`
-	OffHoursMode    string `json:"off_hours_mode"`
+type BarSchedulePhase struct {
+	Code             string `json:"code"`
+	StartTime        string `json:"start_time"`
+	EndTime          string `json:"end_time"`
+	BartenderPresent bool   `json:"bartender_present"`
+	CanOrder         bool   `json:"can_order"`
+}
+
+type BarSchedule struct {
+	VenueCode        string             `json:"venue_code"`
+	Timezone         string             `json:"timezone"`
+	CurrentPhase     string             `json:"current_phase"`
+	BartenderPresent bool               `json:"bartender_present"`
+	CanOrder         bool               `json:"can_order"`
+	NextTransitionAt int64              `json:"next_transition_at"`
+	BackendEnforced  bool               `json:"backend_enforced"`
+	Phases           []BarSchedulePhase `json:"phases"`
+}
+
+type barScheduleConfig struct {
+	CloseTime    string
+	StockingTime string
+	OpenTime     string
 }
 
 type Season struct {
@@ -95,8 +110,8 @@ type Environment struct {
 		Season Season          `json:"season"`
 		Events []CalendarEvent `json:"events"`
 	} `json:"calendar"`
-	BarBusinessHours BusinessHours `json:"bar_business_hours"`
-	Weather          struct {
+	BarSchedule BarSchedule `json:"bar_schedule"`
+	Weather     struct {
 		Current            Weather        `json:"current"`
 		Next               Weather        `json:"next"`
 		TransitionProgress float64        `json:"transition_progress"`
@@ -125,37 +140,34 @@ type generationContext struct {
 }
 
 func NewService(db *gorm.DB) *Service {
-	return &Service{db: db, now: time.Now, businessHours: defaultBusinessHours()}
+	return &Service{db: db, now: time.Now, barSchedule: defaultBarScheduleConfig()}
 }
 
 func NewDefaultService() *Service {
 	service := NewService(model.IslandDatabase())
-	service.businessHours = businessHoursFromEnv()
+	service.barSchedule = barScheduleConfigFromEnv()
 	return service
 }
 
-func defaultBusinessHours() BusinessHours {
-	return BusinessHours{
-		VenueCode:       "wave_song_bar",
-		TimezoneMode:    "viewer_local",
-		OpenTime:        "18:00",
-		CloseTime:       "02:00",
-		CrossesMidnight: true,
-		BackendEnforced: false,
-		OffHoursMode:    "stocking",
-	}
+func defaultBarScheduleConfig() barScheduleConfig {
+	return barScheduleConfig{CloseTime: "02:00", StockingTime: "16:00", OpenTime: "18:00"}
 }
 
-func businessHoursFromEnv() BusinessHours {
-	hours := defaultBusinessHours()
-	if value, ok := validClock(os.Getenv("ISLAND_BAR_OPEN_TIME")); ok {
-		hours.OpenTime = value
-	}
+func barScheduleConfigFromEnv() barScheduleConfig {
+	schedule := defaultBarScheduleConfig()
 	if value, ok := validClock(os.Getenv("ISLAND_BAR_CLOSE_TIME")); ok {
-		hours.CloseTime = value
+		schedule.CloseTime = value
 	}
-	hours.CrossesMidnight = clockMinutes(hours.CloseTime) <= clockMinutes(hours.OpenTime)
-	return hours
+	if value, ok := validClock(os.Getenv("ISLAND_BAR_STOCKING_TIME")); ok {
+		schedule.StockingTime = value
+	}
+	if value, ok := validClock(os.Getenv("ISLAND_BAR_OPEN_TIME")); ok {
+		schedule.OpenTime = value
+	}
+	if !(clockMinutes(schedule.CloseTime) < clockMinutes(schedule.StockingTime) && clockMinutes(schedule.StockingTime) < clockMinutes(schedule.OpenTime)) {
+		return defaultBarScheduleConfig()
+	}
+	return schedule
 }
 
 func validClock(value string) (string, bool) {
@@ -175,10 +187,40 @@ func clockMinutes(value string) int {
 	return parsed.Hour()*60 + parsed.Minute()
 }
 
+func (config barScheduleConfig) at(now time.Time) BarSchedule {
+	local := now.In(islandLocation)
+	minute := local.Hour()*60 + local.Minute()
+	closeMinute := clockMinutes(config.CloseTime)
+	stockingMinute := clockMinutes(config.StockingTime)
+	openMinute := clockMinutes(config.OpenTime)
+	phases := []BarSchedulePhase{
+		{Code: "open", StartTime: config.OpenTime, EndTime: config.CloseTime, BartenderPresent: true, CanOrder: true},
+		{Code: "stocking", StartTime: config.StockingTime, EndTime: config.OpenTime, BartenderPresent: true, CanOrder: false},
+		{Code: "closed", StartTime: config.CloseTime, EndTime: config.StockingTime, BartenderPresent: false, CanOrder: false},
+	}
+	current := phases[0]
+	nextMinute := closeMinute
+	nextDay := minute >= openMinute
+	if minute >= closeMinute && minute < stockingMinute {
+		current = phases[2]
+		nextMinute = stockingMinute
+		nextDay = false
+	} else if minute >= stockingMinute && minute < openMinute {
+		current = phases[1]
+		nextMinute = openMinute
+		nextDay = false
+	}
+	next := time.Date(local.Year(), local.Month(), local.Day(), nextMinute/60, nextMinute%60, 0, 0, islandLocation)
+	if nextDay {
+		next = next.AddDate(0, 0, 1)
+	}
+	return BarSchedule{VenueCode: "wave_song_bar", Timezone: "Asia/Shanghai", CurrentPhase: current.Code, BartenderPresent: current.BartenderPresent, CanOrder: current.CanOrder, NextTransitionAt: next.Unix(), BackendEnforced: false, Phases: phases}
+}
+
 func loadIslandLocation() *time.Location {
-	loc, err := time.LoadLocation("Asia/Hong_Kong")
+	loc, err := time.LoadLocation("Asia/Shanghai")
 	if err != nil {
-		return time.FixedZone("Asia/Hong_Kong", 8*60*60)
+		return time.FixedZone("Asia/Shanghai", 8*60*60)
 	}
 	return loc
 }
@@ -579,9 +621,9 @@ func (s *Service) Environment(ctx context.Context) (Environment, error) {
 	now := s.now()
 	currentAt := floorHour(now)
 	response.Time.ServerTime = now.Unix()
-	response.Time.Timezone = "Asia/Hong_Kong"
+	response.Time.Timezone = "Asia/Shanghai"
 	response.Time.IslandDate = now.In(islandLocation).Format("2006-01-02")
-	response.BarBusinessHours = s.businessHours
+	response.BarSchedule = s.barSchedule.at(now)
 	season, _ := SeasonAt(now)
 	response.Calendar.Season = season
 	events, err := s.eventsAt(ctx, now.Unix())

@@ -35,9 +35,9 @@ func collectDailyLimit() int {
 }
 
 func hongKongDay(now time.Time) (uint, int64) {
-	location, err := time.LoadLocation("Asia/Hong_Kong")
+	location, err := time.LoadLocation("Asia/Shanghai")
 	if err != nil {
-		location = time.FixedZone("Asia/Hong_Kong", 8*60*60)
+		location = time.FixedZone("Asia/Shanghai", 8*60*60)
 	}
 	local := now.In(location)
 	key, _ := strconv.Atoi(local.Format("20060102"))
