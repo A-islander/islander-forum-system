@@ -21,15 +21,27 @@ func TestBarWebSocketPerformance(t *testing.T) {
 	if err := os.Setenv("BAR_WS_TIME_SCALE", "0.25"); err != nil {
 		t.Fatal(err)
 	}
+	previousDialogueScale, hadDialogueScale := os.LookupEnv("BAR_WS_DIALOGUE_TIME_SCALE")
+	if err := os.Setenv("BAR_WS_DIALOGUE_TIME_SCALE", "0.25"); err != nil {
+		t.Fatal(err)
+	}
 	defer func() {
 		if hadScale {
 			_ = os.Setenv("BAR_WS_TIME_SCALE", previousScale)
 		} else {
 			_ = os.Unsetenv("BAR_WS_TIME_SCALE")
 		}
+		if hadDialogueScale {
+			_ = os.Setenv("BAR_WS_DIALOGUE_TIME_SCALE", previousDialogueScale)
+		} else {
+			_ = os.Unsetenv("BAR_WS_DIALOGUE_TIME_SCALE")
+		}
 	}()
 	originalCueBuilder := buildBarPerformanceCue
 	defer func() { buildBarPerformanceCue = originalCueBuilder }()
+	originalWait := waitBarPerformance
+	waitBarPerformance = func(time.Duration) {}
+	defer func() { waitBarPerformance = originalWait }()
 	originalResolver := resolveBarUserId
 	resolveBarUserId = func(token string) (uint64, error) {
 		if token != "test-token" {
@@ -44,12 +56,14 @@ func TestBarWebSocketPerformance(t *testing.T) {
 	buildBarPerformanceCue = func(_ context.Context, result *barservice.OrderResult, stage string, stepIndex int) (string, error) {
 		cueLock.Lock()
 		startedCues++
-		if startedCues == 5 {
+		if startedCues == 6 {
 			close(allCuesStarted)
 		}
 		cueLock.Unlock()
 		<-allCuesStarted
 		switch stage {
+		case "opening":
+			return result.Drink.DrinkName + "马上开调，你刚说的话我听见啦。", nil
 		case "ingredient":
 			return result.Steps[stepIndex].TypeName + "正在取，别催。", nil
 		case "technique":
@@ -90,7 +104,9 @@ func TestBarWebSocketPerformance(t *testing.T) {
 		TimeScale  float64 `json:"time_scale"`
 	}
 	var actionDuration int
+	actionLines := 0
 	llmLines := 0
+	dialogueLinesWithDuration := 0
 	var completed barservice.OrderResult
 	for {
 		var event struct {
@@ -113,16 +129,23 @@ func TestBarWebSocketPerformance(t *testing.T) {
 				t.Fatal(err)
 			}
 			actionDuration = action.DurationMs
+			if action.Text != "" && action.Source == "llm" {
+				actionLines++
+			}
 		}
 		if event.Type == "bartender.say" {
 			var line struct {
-				Source string `json:"source"`
+				Source     string `json:"source"`
+				DurationMs int    `json:"duration_ms"`
 			}
 			if err := json.Unmarshal(event.Payload, &line); err != nil {
 				t.Fatal(err)
 			}
 			if line.Source == "llm" {
 				llmLines++
+			}
+			if line.DurationMs > 0 {
+				dialogueLinesWithDuration++
 			}
 		}
 		if event.Type == "order.completed" {
@@ -148,11 +171,17 @@ func TestBarWebSocketPerformance(t *testing.T) {
 	if accepted.OrderId == "" || accepted.RecipeName != "海角黄昏" || accepted.Technique != "摇和" || accepted.TimeScale != 0.25 {
 		t.Fatalf("unexpected accepted payload: %+v", accepted)
 	}
-	if actionDuration != 300 {
-		t.Fatalf("action duration = %d, want 300", actionDuration)
+	if actionDuration != 6000 {
+		t.Fatalf("action duration = %d, want 6000", actionDuration)
 	}
-	if llmLines != 5 {
-		t.Fatalf("LLM performance lines = %d, want 5", llmLines)
+	if actionLines != 3 {
+		t.Fatalf("action lines = %d, want 3", actionLines)
+	}
+	if llmLines != 6 {
+		t.Fatalf("LLM performance lines = %d, want 6", llmLines)
+	}
+	if dialogueLinesWithDuration != 6 {
+		t.Fatalf("dialogue lines with duration = %d, want 6", dialogueLinesWithDuration)
 	}
 	if completed.Drink.OrderedBy != 4321 {
 		t.Fatalf("ordered_by = %d, want token user 4321", completed.Drink.OrderedBy)
@@ -170,6 +199,20 @@ func TestBarWebSocketPerformance(t *testing.T) {
 	}
 	if strings.Join(sequence, ",") != strings.Join(wantSequence, ",") {
 		t.Fatalf("unexpected websocket sequence: %v", sequence)
+	}
+}
+
+func TestDialogueDurationGrowsWithTextAndClampsScale(t *testing.T) {
+	short := dialogueDuration("海浪之歌。", 1)
+	long := dialogueDuration(strings.Repeat("海风", 30), 1)
+	if short != 24000 {
+		t.Fatalf("short dialogue duration=%d, want 24000", short)
+	}
+	if long != 36000 {
+		t.Fatalf("long dialogue duration=%d, want 36000", long)
+	}
+	if dialogueDuration("海浪之歌。", 2) != 48000 {
+		t.Fatal("dialogue scale was not applied")
 	}
 }
 

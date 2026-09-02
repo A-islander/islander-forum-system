@@ -253,6 +253,7 @@ type performanceCueResult struct {
 }
 
 var buildBarPerformanceCue = controller.BuildBarPerformanceCue
+var waitBarPerformance = time.Sleep
 var resolveBarUserId = func(token string) (uint64, error) {
 	user, err := controller.GetUserByToken(token)
 	if err != nil {
@@ -304,8 +305,10 @@ func barWebSocketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	timeScale := wsTimeScale()
+	dialogueScale := wsDialogueTimeScale()
 	if !sendWSEvent(connection, "order.accepted", map[string]interface{}{
-		"order_id": result.OrderId, "recipe_name": result.RecipeName, "technique": result.Technique, "time_scale": timeScale,
+		"order_id": result.OrderId, "recipe_name": result.RecipeName, "technique": result.Technique,
+		"time_scale": timeScale, "dialogue_time_scale": dialogueScale,
 	}) {
 		return
 	}
@@ -317,18 +320,28 @@ func barWebSocketHandler(w http.ResponseWriter, r *http.Request) {
 		}(result)
 		return ready
 	}
+	openingCue := buildCue("opening", -1)
 	ingredientCues := make([]<-chan performanceCueResult, len(result.Steps))
 	for index := range result.Steps {
 		ingredientCues[index] = buildCue("ingredient", index)
 	}
 	techniqueCue := buildCue("technique", -1)
 	servingCue := buildCue("serving", -1)
-	if !sendWSEvent(connection, "bartender.say", map[string]interface{}{
-		"text": fmt.Sprintf("哼，%s？算你会挑。等着，别催。", result.RecipeName), "stage": "opening", "source": "rule",
-	}) {
+	drinkName := result.Drink.DrinkName
+	if drinkName == "" {
+		drinkName = result.RecipeName
+	}
+	openingLine := fmt.Sprintf("%s？算你会挑。你刚才说的话我听见了，先坐稳，我这就让海风把心意一起调进杯里。", drinkName)
+	openingSource := "rule"
+	if cue, ok := waitPerformanceCue(r.Context(), openingCue); ok && cue.err == nil && cue.text != "" {
+		openingLine = cue.text
+		openingSource = "llm"
+	}
+	openingDuration, ok := sendBartenderSay(connection, openingLine, "opening", openingSource, dialogueScale, nil)
+	if !ok {
 		return
 	}
-	time.Sleep(time.Duration(scaledPerformanceDuration(2000, timeScale)) * time.Millisecond)
+	waitBarPerformance(time.Duration(openingDuration) * time.Millisecond)
 	for index, step := range result.Steps {
 		line := ingredientPerformanceLine(step, result.Trace)
 		lineSource := "rule"
@@ -336,16 +349,20 @@ func barWebSocketHandler(w http.ResponseWriter, r *http.Request) {
 			line = cue.text
 			lineSource = "llm"
 		}
-		if !sendWSEvent(connection, "bartender.say", map[string]interface{}{
-			"text": line, "stage": "ingredient", "source": lineSource, "type_id": step.TypeId,
-		}) {
+		dialogueDurationMs, ok := sendBartenderSay(connection, line, "ingredient", lineSource, dialogueScale, map[string]interface{}{"type_id": step.TypeId})
+		if !ok {
 			return
 		}
+		step.Text = line
+		step.Source = lineSource
 		step.DurationMs = scaledPerformanceDuration(1200, timeScale)
+		if dialogueDurationMs > step.DurationMs {
+			step.DurationMs = dialogueDurationMs
+		}
 		if !sendWSEvent(connection, "action.start", step) {
 			return
 		}
-		time.Sleep(time.Duration(step.DurationMs) * time.Millisecond)
+		waitBarPerformance(time.Duration(step.DurationMs) * time.Millisecond)
 	}
 	techniqueLine := techniquePerformanceLine(result.Technique)
 	techniqueSource := "rule"
@@ -353,16 +370,20 @@ func barWebSocketHandler(w http.ResponseWriter, r *http.Request) {
 		techniqueLine = cue.text
 		techniqueSource = "llm"
 	}
+	dialogueDurationMs, ok := sendBartenderSay(connection, techniqueLine, "technique", techniqueSource, dialogueScale, nil)
+	if !ok {
+		return
+	}
 	duration := scaledPerformanceDuration(techniqueDuration(result.Technique), timeScale)
-	if !sendWSEvent(connection, "bartender.say", map[string]interface{}{
-		"text": techniqueLine, "stage": "technique", "source": techniqueSource,
+	if dialogueDurationMs > duration {
+		duration = dialogueDurationMs
+	}
+	if !sendWSEvent(connection, "action.technique", map[string]interface{}{
+		"technique": result.Technique, "text": techniqueLine, "source": techniqueSource, "duration_ms": duration,
 	}) {
 		return
 	}
-	if !sendWSEvent(connection, "action.technique", map[string]interface{}{"technique": result.Technique, "duration_ms": duration}) {
-		return
-	}
-	time.Sleep(time.Duration(duration) * time.Millisecond)
+	waitBarPerformance(time.Duration(duration) * time.Millisecond)
 	serveText := result.Drink.Description
 	serveSource := "rule"
 	if cue, ok := waitPerformanceCue(r.Context(), servingCue); ok && cue.err == nil && cue.text != "" {
@@ -373,11 +394,11 @@ func barWebSocketHandler(w http.ResponseWriter, r *http.Request) {
 	if serveText == "" {
 		serveText = fmt.Sprintf("好了，你的%s。别洒了。", result.RecipeName)
 	}
-	if !sendWSEvent(connection, "bartender.say", map[string]interface{}{
-		"text": serveText, "stage": "serving", "source": serveSource,
-	}) {
+	servingDuration, ok := sendBartenderSay(connection, serveText, "serving", serveSource, dialogueScale, nil)
+	if !ok {
 		return
 	}
+	waitBarPerformance(time.Duration(servingDuration) * time.Millisecond)
 	sendWSEvent(connection, "order.completed", result)
 }
 
@@ -402,6 +423,45 @@ func wsTimeScale() float64 {
 		return 4
 	}
 	return value
+}
+
+func wsDialogueTimeScale() float64 {
+	value, err := strconv.ParseFloat(strings.TrimSpace(os.Getenv("BAR_WS_DIALOGUE_TIME_SCALE")), 64)
+	if err != nil || value <= 0 {
+		return 1
+	}
+	if value < 0.25 {
+		return 0.25
+	}
+	if value > 4 {
+		return 4
+	}
+	return value
+}
+
+func dialogueDuration(text string, scale float64) int {
+	baseMs := 12000 + len([]rune(strings.TrimSpace(text)))*450
+	if baseMs < 24000 {
+		baseMs = 24000
+	}
+	if baseMs > 36000 {
+		baseMs = 36000
+	}
+	return scaledPerformanceDuration(baseMs, scale)
+}
+
+func sendBartenderSay(connection *websocket.Conn, text, stage, source string, scale float64, extra map[string]interface{}) (int, bool) {
+	durationMs := dialogueDuration(text, scale)
+	payload := map[string]interface{}{
+		"text": text, "stage": stage, "source": source, "duration_ms": durationMs,
+	}
+	for key, value := range extra {
+		payload[key] = value
+	}
+	if !sendWSEvent(connection, "bartender.say", payload) {
+		return 0, false
+	}
+	return durationMs, true
 }
 
 func scaledPerformanceDuration(baseMs int, scale float64) int {
@@ -436,21 +496,21 @@ func ingredientPerformanceLine(step barservice.PerformanceStep, trace []barservi
 		}
 		return line + "这批是" + strings.TrimSuffix(note, "。") + "，算你赶上了。"
 	}
-	return line + "嗯，状态正好。"
+	return line + "状态正好，香气也没躲起来；你坐稳看着，我可不会随便糟蹋这份好材料。"
 }
 
 func techniquePerformanceLine(technique string) string {
 	lines := map[string]string{
-		"摇和": "抓稳吧台，我要摇了——洒出来可不算我的。",
-		"搅和": "别急，慢慢搅开才不会惊了香气。",
-		"捣压": "让开一点，草本得现捣才肯出味。",
-		"分层": "看好了，手别晃，这层次可不是随便倒出来的。",
-		"兑和": "最后兑在一起，气泡马上就醒了。",
+		"摇和": "接下来要开始摇和了，杯里的海风得先醒过来；看仔细点，这份力道可不是乱晃几下。",
+		"搅和": "接下来慢慢搅和，让香气沿着杯壁自己舒展开；急着催它，只会把原本的层次都惊跑。",
+		"捣压": "现在要开始捣压，让草本把藏着的清香交出来；力气太轻没用，太重又会留下苦味。",
+		"分层": "接下来开始分层，看清每一层颜色怎样停在浪线上；手要是多晃一下，这片小海景可就散了。",
+		"兑和": "最后开始兑和，让气泡和香气一起从杯底醒来；这一步看着轻巧，落点早晚却一点都不能差。",
 	}
 	if line := lines[technique]; line != "" {
 		return line
 	}
-	return "最后这一下看着简单，分寸可都在手上。"
+	return "最后这道手法看起来简单，真正的分寸可都藏在手上；你看仔细点，别眨眼错过最关键的一下。"
 }
 
 func techniqueDuration(technique string) int {

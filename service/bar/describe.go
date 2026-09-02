@@ -126,7 +126,7 @@ func (d *IslandGirlDescriber) Describe(ctx context.Context, input DescribeInput)
 		return "", err
 	}
 	prompt := "请根据下面这杯刚调好的酒生成上酒解说。\n" +
-		"只输出岛民娘直接对客人说的2到3句话，建议50到100个汉字；先点出最鲜明的外观或风味，再说入口感受，最后自然上酒。" +
+		"只输出岛民娘直接对客人说的两句话，每句话30到50个汉字；先点出最鲜明的外观或风味，再说入口感受，最后自然上酒。" +
 		"required_facts 中的事实必须逐条明确说出，不能省略或只作含糊暗示。" +
 		"不要输出标题、列表、Markdown、JSON、思考过程或配方数值，不要复述配方故事原文。\n酒品数据：" + string(raw)
 	description, err := d.client.Complete(ctx, llmservice.Request{System: islandGirlSystemPrompt, Prompt: prompt, MaxTokens: 180})
@@ -143,6 +143,8 @@ func (d *IslandGirlDescriber) DescribePerformanceCue(ctx context.Context, input 
 	}
 	var instruction string
 	switch stage {
+	case "opening":
+		instruction = fmt.Sprintf("只输出开始调酒时对客人说的一句话，30到50个汉字；必须原样包含完整酒名%s。customer_message 是客人刚刚对你说的话，非空时要自然回应它，但不要复述整句；以俏皮、有温度的现场互动为主，嘴硬只作点缀。", input.RecipeName)
 	case "ingredient":
 		if step == nil {
 			return "", errors.New("ingredient performance cue requires a step")
@@ -159,9 +161,9 @@ func (d *IslandGirlDescriber) DescribePerformanceCue(ctx context.Context, input 
 		if step.Action == "加料" {
 			action = "按客人的选择额外加入"
 		}
-		instruction = fmt.Sprintf("只输出%s%s时说的一句话，12到35个汉字；必须自然说出原料名%s，以俏皮的现场互动为主，嘴硬只作点缀。不要使用哼、别催、拿稳这些高频套话。若数据提供来源可以提及，但绝不编造来源、数量或状态。", action, step.TypeName, step.TypeName)
+		instruction = fmt.Sprintf("只输出%s%s时说的一句话，30到50个汉字；必须自然说出原料名%s，以俏皮的现场互动为主，嘴硬只作点缀。不要使用哼、别催、拿稳这些高频套话。若数据提供来源可以提及，但绝不编造来源、数量或状态。", action, step.TypeName, step.TypeName)
 	case "technique":
-		instruction = fmt.Sprintf("只输出即将开始%s手法前说的一句话，12到35个汉字；必须包含技法名%s，使用将要开始的语气，不能说已经摇好、做完或完成。以俏皮的现场互动为主，不要使用哼、别催、拿稳这些高频套话，不编造其他技法。", input.Technique, input.Technique)
+		instruction = fmt.Sprintf("只输出即将开始%s手法前说的一句话，30到50个汉字；必须包含技法名%s，使用将要开始的语气，不能说已经摇好、做完或完成。以俏皮的现场互动为主，不要使用哼、别催、拿稳这些高频套话，不编造其他技法。", input.Technique, input.Technique)
 	default:
 		return "", fmt.Errorf("unsupported performance stage %q", stage)
 	}
@@ -170,7 +172,7 @@ func (d *IslandGirlDescriber) DescribePerformanceCue(ctx context.Context, input 
 		return "", err
 	}
 	line, err := d.client.Complete(ctx, llmservice.Request{
-		System: islandGirlSystemPrompt, Prompt: instruction + "不要输出引号、标题、JSON、Markdown或解释。数据：" + string(raw), MaxTokens: 80,
+		System: islandGirlSystemPrompt, Prompt: instruction + "不要输出引号、标题、JSON、Markdown或解释。数据：" + string(raw), MaxTokens: 120,
 	})
 	if err != nil {
 		return "", err
@@ -178,6 +180,9 @@ func (d *IslandGirlDescriber) DescribePerformanceCue(ctx context.Context, input 
 	line = strings.TrimSpace(line)
 	if line == "" {
 		return "", errors.New("empty performance cue")
+	}
+	if stage == "opening" && !strings.Contains(line, input.RecipeName) {
+		return "", fmt.Errorf("performance cue omitted drink name %s", input.RecipeName)
 	}
 	if stage == "ingredient" && !strings.Contains(line, step.TypeName) {
 		return "", fmt.Errorf("performance cue omitted ingredient %s", step.TypeName)

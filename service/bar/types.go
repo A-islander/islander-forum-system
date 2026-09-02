@@ -93,6 +93,8 @@ type PerformanceStep struct {
 	TypeName   string  `json:"type_name"`
 	Qty        float64 `json:"qty"`
 	Unit       string  `json:"unit"`
+	Text       string  `json:"text,omitempty"`
+	Source     string  `json:"source,omitempty"`
 	DurationMs int     `json:"duration_ms,omitempty"`
 }
 

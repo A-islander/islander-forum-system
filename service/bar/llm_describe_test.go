@@ -105,6 +105,35 @@ func TestIslandGirlDescriberBuildsIngredientPerformanceCue(t *testing.T) {
 	}
 }
 
+func TestIslandGirlDescriberBuildsOpeningCueWithDrinkNameAndCustomerMessage(t *testing.T) {
+	client := &recordingLLM{content: "海浪之歌是吧，心情不好就先交给这阵海风。"}
+	describer := NewIslandGirlDescriber(client)
+	line, err := describer.DescribePerformanceCue(context.Background(), DescribeInput{
+		RecipeName: "海浪之歌", CustomerMessage: "今天心情有点差",
+	}, "opening", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(line, "海浪之歌") {
+		t.Fatalf("opening cue omitted drink name: %q", line)
+	}
+	for _, expected := range []string{"30到50个汉字", "必须原样包含完整酒名海浪之歌", "今天心情有点差", "客人刚刚对你说的话"} {
+		if !strings.Contains(client.request.Prompt, expected) {
+			t.Fatalf("opening prompt does not contain %q: %s", expected, client.request.Prompt)
+		}
+	}
+}
+
+func TestIslandGirlDescriberRejectsOpeningCueWithoutDrinkName(t *testing.T) {
+	describer := NewIslandGirlDescriber(fixedLLM{content: "心情不好就先交给这阵海风。"})
+	_, err := describer.DescribePerformanceCue(context.Background(), DescribeInput{
+		RecipeName: "海浪之歌", CustomerMessage: "今天心情有点差",
+	}, "opening", nil)
+	if err == nil {
+		t.Fatal("expected opening cue without drink name to be rejected")
+	}
+}
+
 func TestIslandGirlDescriberRejectsCompletedTechniqueCue(t *testing.T) {
 	describer := NewIslandGirlDescriber(fixedLLM{content: "摇和好了，拿稳。"})
 	_, err := describer.DescribePerformanceCue(context.Background(), DescribeInput{Technique: "摇和"}, "technique", nil)
