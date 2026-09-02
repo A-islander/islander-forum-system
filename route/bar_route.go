@@ -331,7 +331,7 @@ func barWebSocketHandler(w http.ResponseWriter, r *http.Request) {
 	if drinkName == "" {
 		drinkName = result.RecipeName
 	}
-	openingLine := fmt.Sprintf("%s？算你会挑。你刚才说的话我听见了，先坐稳，我这就让海风把心意一起调进杯里。", drinkName)
+	openingLine := fmt.Sprintf("%s，知道了。你先坐好，我马上开始。", drinkName)
 	openingSource := "rule"
 	if cue, ok := waitPerformanceCue(r.Context(), openingCue); ok && cue.err == nil && cue.text != "" {
 		openingLine = cue.text
@@ -349,10 +349,7 @@ func barWebSocketHandler(w http.ResponseWriter, r *http.Request) {
 			line = cue.text
 			lineSource = "llm"
 		}
-		dialogueDurationMs, ok := sendBartenderSay(connection, line, "ingredient", lineSource, dialogueScale, map[string]interface{}{"type_id": step.TypeId})
-		if !ok {
-			return
-		}
+		dialogueDurationMs := performanceCueDuration("ingredient", line, dialogueScale)
 		step.Text = line
 		step.Source = lineSource
 		step.DurationMs = scaledPerformanceDuration(1200, timeScale)
@@ -370,10 +367,7 @@ func barWebSocketHandler(w http.ResponseWriter, r *http.Request) {
 		techniqueLine = cue.text
 		techniqueSource = "llm"
 	}
-	dialogueDurationMs, ok := sendBartenderSay(connection, techniqueLine, "technique", techniqueSource, dialogueScale, nil)
-	if !ok {
-		return
-	}
+	dialogueDurationMs := performanceCueDuration("technique", techniqueLine, dialogueScale)
 	duration := scaledPerformanceDuration(techniqueDuration(result.Technique), timeScale)
 	if dialogueDurationMs > duration {
 		duration = dialogueDurationMs
@@ -439,19 +433,29 @@ func wsDialogueTimeScale() float64 {
 	return value
 }
 
-func dialogueDuration(text string, scale float64) int {
-	baseMs := 12000 + len([]rune(strings.TrimSpace(text)))*450
-	if baseMs < 24000 {
-		baseMs = 24000
+func performanceCueDuration(stage, text string, scale float64) int {
+	runeCount := len([]rune(strings.TrimSpace(text)))
+	baseMs := 12000 + runeCount*450
+	minimumMs, maximumMs := 24000, 36000
+	switch stage {
+	case "opening":
+		baseMs = 2500 + runeCount*100
+		minimumMs, maximumMs = 4000, 8000
+	case "serving":
+		baseMs = 5000 + runeCount*180
+		minimumMs, maximumMs = 10000, 20000
 	}
-	if baseMs > 36000 {
-		baseMs = 36000
+	if baseMs < minimumMs {
+		baseMs = minimumMs
+	}
+	if baseMs > maximumMs {
+		baseMs = maximumMs
 	}
 	return scaledPerformanceDuration(baseMs, scale)
 }
 
 func sendBartenderSay(connection *websocket.Conn, text, stage, source string, scale float64, extra map[string]interface{}) (int, bool) {
-	durationMs := dialogueDuration(text, scale)
+	durationMs := performanceCueDuration(stage, text, scale)
 	payload := map[string]interface{}{
 		"text": text, "stage": stage, "source": source, "duration_ms": durationMs,
 	}

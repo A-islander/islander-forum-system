@@ -107,6 +107,7 @@ func TestBarWebSocketPerformance(t *testing.T) {
 	actionLines := 0
 	llmLines := 0
 	dialogueLinesWithDuration := 0
+	techniqueLineInAction := false
 	var completed barservice.OrderResult
 	for {
 		var event struct {
@@ -132,6 +133,17 @@ func TestBarWebSocketPerformance(t *testing.T) {
 			if action.Text != "" && action.Source == "llm" {
 				actionLines++
 			}
+		}
+		if event.Type == "action.technique" {
+			var action struct {
+				Text       string `json:"text"`
+				Source     string `json:"source"`
+				DurationMs int    `json:"duration_ms"`
+			}
+			if err := json.Unmarshal(event.Payload, &action); err != nil {
+				t.Fatal(err)
+			}
+			techniqueLineInAction = action.Text != "" && action.Source == "llm" && action.DurationMs > 0
 		}
 		if event.Type == "bartender.say" {
 			var line struct {
@@ -177,24 +189,27 @@ func TestBarWebSocketPerformance(t *testing.T) {
 	if actionLines != 3 {
 		t.Fatalf("action lines = %d, want 3", actionLines)
 	}
-	if llmLines != 6 {
-		t.Fatalf("LLM performance lines = %d, want 6", llmLines)
+	if llmLines != 2 {
+		t.Fatalf("LLM bartender lines = %d, want 2", llmLines)
 	}
-	if dialogueLinesWithDuration != 6 {
-		t.Fatalf("dialogue lines with duration = %d, want 6", dialogueLinesWithDuration)
+	if dialogueLinesWithDuration != 2 {
+		t.Fatalf("dialogue lines with duration = %d, want 2", dialogueLinesWithDuration)
+	}
+	if !techniqueLineInAction {
+		t.Fatal("technique action did not carry its LLM line and duration")
 	}
 	if completed.Drink.OrderedBy != 4321 {
 		t.Fatalf("ordered_by = %d, want token user 4321", completed.Drink.OrderedBy)
 	}
-	if seen["bartender.say"] < 6 {
-		t.Fatalf("expected opening, ingredient, technique and serving lines; got %d", seen["bartender.say"])
+	if seen["bartender.say"] != 2 {
+		t.Fatalf("expected only opening and serving bartender lines; got %d", seen["bartender.say"])
 	}
 	wantSequence := []string{
 		"order.accepted", "bartender.say",
-		"bartender.say", "action.start",
-		"bartender.say", "action.start",
-		"bartender.say", "action.start",
-		"bartender.say", "action.technique",
+		"action.start",
+		"action.start",
+		"action.start",
+		"action.technique",
 		"bartender.say", "order.completed",
 	}
 	if strings.Join(sequence, ",") != strings.Join(wantSequence, ",") {
@@ -202,17 +217,25 @@ func TestBarWebSocketPerformance(t *testing.T) {
 	}
 }
 
-func TestDialogueDurationGrowsWithTextAndClampsScale(t *testing.T) {
-	short := dialogueDuration("海浪之歌。", 1)
-	long := dialogueDuration(strings.Repeat("海风", 30), 1)
+func TestDialogueDurationUsesShortOpeningAndLongActions(t *testing.T) {
+	short := performanceCueDuration("ingredient", "海浪之歌。", 1)
+	long := performanceCueDuration("ingredient", strings.Repeat("海风", 30), 1)
 	if short != 24000 {
 		t.Fatalf("short dialogue duration=%d, want 24000", short)
 	}
 	if long != 36000 {
 		t.Fatalf("long dialogue duration=%d, want 36000", long)
 	}
-	if dialogueDuration("海浪之歌。", 2) != 48000 {
+	if performanceCueDuration("ingredient", "海浪之歌。", 2) != 48000 {
 		t.Fatal("dialogue scale was not applied")
+	}
+	opening := performanceCueDuration("opening", strings.Repeat("海风", 20), 1)
+	serving := performanceCueDuration("serving", strings.Repeat("海风", 40), 1)
+	if opening != 6500 {
+		t.Fatalf("opening duration=%d, want 6500", opening)
+	}
+	if serving != 19400 {
+		t.Fatalf("serving duration=%d, want 19400", serving)
 	}
 }
 
