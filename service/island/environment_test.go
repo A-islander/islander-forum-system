@@ -67,13 +67,33 @@ func TestBuildAlertsSplitsWatchAndWarning(t *testing.T) {
 	}
 }
 
-func TestBusinessHoursUseViewerLocalTime(t *testing.T) {
-	hours := defaultBusinessHours()
-	if hours.TimezoneMode != "viewer_local" || hours.OpenTime != "18:00" || hours.CloseTime != "02:00" || !hours.CrossesMidnight {
-		t.Fatalf("unexpected default business hours: %+v", hours)
+func TestBarScheduleUsesIslandStandardTime(t *testing.T) {
+	config := defaultBarScheduleConfig()
+	tests := []struct {
+		hour, minute int
+		phase        string
+		present      bool
+		canOrder     bool
+		nextHour     int
+		nextDay      int
+	}{
+		{1, 59, "open", true, true, 2, 2},
+		{2, 0, "closed", false, false, 16, 2},
+		{15, 59, "closed", false, false, 16, 2},
+		{16, 0, "stocking", true, false, 18, 2},
+		{17, 59, "stocking", true, false, 18, 2},
+		{18, 0, "open", true, true, 2, 3},
 	}
-	if hours.BackendEnforced || hours.OffHoursMode != "stocking" {
-		t.Fatalf("unexpected business policy: %+v", hours)
+	for _, test := range tests {
+		now := time.Date(2026, time.September, 2, test.hour, test.minute, 0, 0, islandLocation)
+		schedule := config.at(now)
+		next := time.Unix(schedule.NextTransitionAt, 0).In(islandLocation)
+		if schedule.Timezone != "Asia/Shanghai" || schedule.CurrentPhase != test.phase || schedule.BartenderPresent != test.present || schedule.CanOrder != test.canOrder {
+			t.Fatalf("at %s got unexpected schedule: %+v", now.Format("15:04"), schedule)
+		}
+		if next.Hour() != test.nextHour || next.Day() != test.nextDay {
+			t.Fatalf("at %s got next transition %s", now.Format("15:04"), next)
+		}
 	}
 	if _, ok := validClock("8:00"); ok {
 		t.Fatal("non-padded clock should be rejected")
@@ -142,10 +162,10 @@ func TestMaintainTimelineIsIdempotentAndPreservesManualSlot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if environment.Time.Timezone != "Asia/Hong_Kong" || environment.Time.ServerTime != fixedNow.Unix() || len(environment.Weather.Hourly) != 25 {
+	if environment.Time.Timezone != "Asia/Shanghai" || environment.Time.ServerTime != fixedNow.Unix() || len(environment.Weather.Hourly) != 25 {
 		t.Fatalf("unexpected environment response: time=%+v hourly=%d", environment.Time, len(environment.Weather.Hourly))
 	}
-	if environment.BarBusinessHours.TimezoneMode != "viewer_local" || environment.BarBusinessHours.BackendEnforced {
-		t.Fatalf("unexpected business hours response: %+v", environment.BarBusinessHours)
+	if environment.BarSchedule.CurrentPhase != "stocking" || !environment.BarSchedule.BartenderPresent || environment.BarSchedule.CanOrder {
+		t.Fatalf("unexpected bar schedule response: %+v", environment.BarSchedule)
 	}
 }

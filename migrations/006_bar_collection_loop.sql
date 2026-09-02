@@ -31,7 +31,7 @@ CREATE TABLE bar_collect_loot (
 
 CREATE TABLE bar_collect_daily (
     user_id BIGINT UNSIGNED NOT NULL,
-    day_key INT UNSIGNED NOT NULL COMMENT 'Asia/Hong_Kong 日期 YYYYMMDD',
+    day_key INT UNSIGNED NOT NULL COMMENT 'Asia/Shanghai 日期 YYYYMMDD',
     used_count TINYINT UNSIGNED NOT NULL DEFAULT 0,
     created_at BIGINT NOT NULL,
     updated_at BIGINT NOT NULL,
