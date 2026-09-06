@@ -39,11 +39,11 @@ func TestCreateOfficialRecipeTransactionAndDuplicate(t *testing.T) {
 	service := NewService(tx, nil)
 	name := fmt.Sprintf("椰林飘香-测试-%d", time.Now().UnixNano())
 	request := CreateRecipeRequest{Name: name, Story: "菠萝、椰浆和甘蔗烧吹来一阵热带海风。", Technique: "摇和", Items: []CreateRecipeItemRequest{{TypeId: 1, Quantity: 45}, {TypeId: 9, Quantity: 90, Requirement: map[string][]float64{"freshness": {30, 100}}}, {TypeId: 8, Quantity: 30}}}
-	result, err := service.CreateOfficialRecipe(context.Background(), request)
+	result, err := service.CreateOfficialRecipe(context.Background(), 70003, request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Id == 0 || result.CreatorId != 0 || result.Status != 0 || len(result.Items) != 3 {
+	if result.Id == 0 || result.CreatorId != 70003 || result.Status != 0 || len(result.Items) != 3 {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 	for index, item := range result.Items {
@@ -64,7 +64,7 @@ func TestCreateOfficialRecipeTransactionAndDuplicate(t *testing.T) {
 	if !found {
 		t.Fatal("created recipe was not visible in menu")
 	}
-	_, err = service.CreateOfficialRecipe(context.Background(), request)
+	_, err = service.CreateOfficialRecipe(context.Background(), 70003, request)
 	var duplicate *DuplicateRecipeError
 	if !errors.As(err, &duplicate) {
 		t.Fatalf("duplicate create error=%v", err)
@@ -79,7 +79,7 @@ func TestCreateOfficialRecipeRejectsUnavailableIngredientWithoutWriting(t *testi
 	defer tx.Rollback()
 	service := NewService(tx, nil)
 	name := fmt.Sprintf("坏配方-%d", time.Now().UnixNano())
-	_, err := service.CreateOfficialRecipe(context.Background(), CreateRecipeRequest{Name: name, Technique: "摇和", Items: []CreateRecipeItemRequest{{TypeId: 999999, Quantity: 1}}})
+	_, err := service.CreateOfficialRecipe(context.Background(), 70003, CreateRecipeRequest{Name: name, Technique: "摇和", Items: []CreateRecipeItemRequest{{TypeId: 999999, Quantity: 1}}})
 	if err == nil {
 		t.Fatal("unavailable ingredient was accepted")
 	}

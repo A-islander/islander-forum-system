@@ -24,8 +24,8 @@ func GetBarMenu(ctx context.Context) ([]barservice.MenuRecipe, error) {
 	return barService.Menu(ctx)
 }
 
-func CreateOfficialBarRecipe(ctx context.Context, request barservice.CreateRecipeRequest) (barservice.CreateRecipeResult, error) {
-	return barService.CreateOfficialRecipe(ctx, request)
+func CreateOfficialBarRecipe(ctx context.Context, creatorId uint64, request barservice.CreateRecipeRequest) (barservice.CreateRecipeResult, error) {
+	return barService.CreateOfficialRecipe(ctx, creatorId, request)
 }
 
 func GetBarIngredients(ctx context.Context) ([]barservice.IngredientCatalogItem, error) {

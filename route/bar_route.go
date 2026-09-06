@@ -41,12 +41,13 @@ func barRecipeAdminHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "bar admin API is disabled")
 		return
 	}
-	provided := strings.TrimSpace(r.Header.Get("Authorization"))
-	if strings.HasPrefix(provided, "Bearer ") {
-		provided = strings.TrimSpace(strings.TrimPrefix(provided, "Bearer "))
-	}
+	provided := strings.TrimSpace(r.Header.Get("X-Bar-Admin-Token"))
 	if len(provided) != len(expected) || subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) != 1 {
 		writeError(w, http.StatusUnauthorized, "invalid bar admin token")
+		return
+	}
+	creatorId, ok := authenticatedBarUser(w, r)
+	if !ok {
 		return
 	}
 	var request barservice.CreateRecipeRequest
@@ -54,7 +55,7 @@ func barRecipeAdminHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	result, err := controller.CreateOfficialBarRecipe(r.Context(), request)
+	result, err := controller.CreateOfficialBarRecipe(r.Context(), creatorId, request)
 	if err != nil {
 		var duplicate *barservice.DuplicateRecipeError
 		if errors.As(err, &duplicate) {

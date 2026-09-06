@@ -286,7 +286,7 @@ func TestBarRecipeAdminRequiresConfiguredToken(t *testing.T) {
 
 	_ = os.Setenv("BAR_ADMIN_TOKEN", "test-admin-token")
 	request = httptest.NewRequest(http.MethodPost, "/api/bar/admin/recipes", strings.NewReader(`{}`))
-	request.Header.Set("Authorization", "Bearer wrong-token")
+	request.Header.Set("X-Bar-Admin-Token", "wrong-token")
 	response = httptest.NewRecorder()
 	barRecipeAdminHandler(response, request)
 	var unauthorized struct {

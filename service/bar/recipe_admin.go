@@ -53,7 +53,10 @@ type DuplicateRecipeError struct{ Name string }
 
 func (e *DuplicateRecipeError) Error() string { return fmt.Sprintf("recipe %q already exists", e.Name) }
 
-func (s *Service) CreateOfficialRecipe(ctx context.Context, request CreateRecipeRequest) (CreateRecipeResult, error) {
+func (s *Service) CreateOfficialRecipe(ctx context.Context, creatorId uint64, request CreateRecipeRequest) (CreateRecipeResult, error) {
+	if creatorId == 0 {
+		return CreateRecipeResult{}, errors.New("creator_id is required")
+	}
 	request.Name = strings.TrimSpace(request.Name)
 	request.Story = strings.TrimSpace(request.Story)
 	request.Technique = strings.TrimSpace(request.Technique)
@@ -89,7 +92,7 @@ func (s *Service) CreateOfficialRecipe(ctx context.Context, request CreateRecipe
 		}
 
 		now := s.now().Unix()
-		recipe := model.BarRecipe{Name: request.Name, Story: request.Story, CreatorId: 0, Technique: request.Technique, Status: 0, OrderCount: 0, CreatedAt: now, UpdatedAt: now}
+		recipe := model.BarRecipe{Name: request.Name, Story: request.Story, CreatorId: creatorId, Technique: request.Technique, Status: 0, OrderCount: 0, CreatedAt: now, UpdatedAt: now}
 		if err := tx.Create(&recipe).Error; err != nil {
 			return err
 		}
