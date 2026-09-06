@@ -260,6 +260,46 @@ func TestBarHTTPOrderRequiresAuthorization(t *testing.T) {
 	}
 }
 
+func TestBarRecipeAdminRequiresConfiguredToken(t *testing.T) {
+	original, existed := os.LookupEnv("BAR_ADMIN_TOKEN")
+	defer func() {
+		if existed {
+			_ = os.Setenv("BAR_ADMIN_TOKEN", original)
+		} else {
+			_ = os.Unsetenv("BAR_ADMIN_TOKEN")
+		}
+	}()
+
+	_ = os.Unsetenv("BAR_ADMIN_TOKEN")
+	request := httptest.NewRequest(http.MethodPost, "/api/bar/admin/recipes", strings.NewReader(`{}`))
+	response := httptest.NewRecorder()
+	barRecipeAdminHandler(response, request)
+	var disabled struct {
+		Code int `json:"code"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &disabled); err != nil {
+		t.Fatal(err)
+	}
+	if disabled.Code != http.StatusServiceUnavailable {
+		t.Fatalf("disabled code=%d body=%s", disabled.Code, response.Body.String())
+	}
+
+	_ = os.Setenv("BAR_ADMIN_TOKEN", "test-admin-token")
+	request = httptest.NewRequest(http.MethodPost, "/api/bar/admin/recipes", strings.NewReader(`{}`))
+	request.Header.Set("X-Bar-Admin-Token", "wrong-token")
+	response = httptest.NewRecorder()
+	barRecipeAdminHandler(response, request)
+	var unauthorized struct {
+		Code int `json:"code"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &unauthorized); err != nil {
+		t.Fatal(err)
+	}
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized code=%d body=%s", unauthorized.Code, response.Body.String())
+	}
+}
+
 func TestBarIngredientsArePublic(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/api/bar/ingredients", nil)
 	response := httptest.NewRecorder()

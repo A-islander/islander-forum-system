@@ -19,7 +19,7 @@ func methodMiddleware(next http.Handler) http.Handler {
 		switch r.Method {
 		// 复杂POST处理
 		case "OPTIONS":
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type,AccessToken,X-CSRF-Token, Authorization")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type,AccessToken,X-CSRF-Token,Authorization,X-Bar-Admin-Token")
 			w.Header().Set("Access-Control-Expose-Headers", "Content-Length, Access-Control-Allow-Origin, Access-Control-Allow-Headers, Content-Type")
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			w.WriteHeader(http.StatusNoContent)
