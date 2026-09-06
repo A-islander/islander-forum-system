@@ -2,6 +2,7 @@ package route
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 
 func registerBarRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/bar/menu", methodMiddleware(http.HandlerFunc(barMenuHandler)))
+	mux.Handle("/api/bar/admin/recipes", methodMiddleware(http.HandlerFunc(barRecipeAdminHandler)))
 	mux.Handle("/api/bar/ingredients", methodMiddleware(http.HandlerFunc(barIngredientsHandler)))
 	mux.Handle("/api/bar/backpack", methodMiddleware(http.HandlerFunc(barBackpackHandler)))
 	mux.Handle("/api/bar/backpack/submit", methodMiddleware(http.HandlerFunc(barBackpackSubmitHandler)))
@@ -28,6 +30,41 @@ func registerBarRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/bar/drink/", methodMiddleware(http.HandlerFunc(barDrinkHandler)))
 	mux.Handle("/api/bar/trace/", methodMiddleware(http.HandlerFunc(barTraceHandler)))
 	mux.HandleFunc("/ws/bar/order", barWebSocketHandler)
+}
+
+func barRecipeAdminHandler(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+	expected := strings.TrimSpace(os.Getenv("BAR_ADMIN_TOKEN"))
+	if expected == "" {
+		writeError(w, http.StatusServiceUnavailable, "bar admin API is disabled")
+		return
+	}
+	provided := strings.TrimSpace(r.Header.Get("Authorization"))
+	if strings.HasPrefix(provided, "Bearer ") {
+		provided = strings.TrimSpace(strings.TrimPrefix(provided, "Bearer "))
+	}
+	if len(provided) != len(expected) || subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) != 1 {
+		writeError(w, http.StatusUnauthorized, "invalid bar admin token")
+		return
+	}
+	var request barservice.CreateRecipeRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := controller.CreateOfficialBarRecipe(r.Context(), request)
+	if err != nil {
+		var duplicate *barservice.DuplicateRecipeError
+		if errors.As(err, &duplicate) {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	write(w, result)
 }
 
 func authenticatedBarUser(w http.ResponseWriter, r *http.Request) (uint64, bool) {
